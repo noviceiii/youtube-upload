@@ -34,7 +34,7 @@ There are two config files with all necessary sections and keys (e.g., [Video], 
 - config_auth_settings.cfg for script settings.
 - config_video.cfg for video and youtube related settings.
 
-There are examples included. Just rename them and adjust the settings to your needs.
+There are examples included. Just rename them and adjust the settings according your needs.
 
 ## Usage
 Run the script from the command line. It will read the config file and upload the specified video to your YouTube channel.
