@@ -4,7 +4,7 @@ LICENSE
 config_auth_settings.cfg
 config_video.cfg
 youtube_client_secrets.json
-youtube_upload.py-oauth2.json
+youtube_client_oauth2.jso
 
 # Ignore node_modules directory
 node_modules/
