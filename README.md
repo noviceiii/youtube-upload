@@ -30,7 +30,11 @@ This script allows you to upload videos to YouTube with extra metadata such as p
 - Create an OAuth 2.0 Client ID. Download the JSON file and save it as youtube_client_secrets.json.
 
 ## Configuration
-Provide a config.cfg file with all necessary sections and keys (e.g., [Video], [Auth], [Settings]).
+There are two config files with all necessary sections and keys (e.g., [Video], [Auth], [Settings]).
+- config_auth_settings.cfg for script settings.
+- config_video.cfg for video and youtube related settings.
+
+There are examples included. Just rename them and adjust the settings to your needs.
 
 ## Usage
 Run the script from the command line. It will read the config file and upload the specified video to your YouTube channel.
