@@ -38,12 +38,8 @@ Run the script from the command line. It will read the config file and upload th
    python3 youtube_upload.py 
    ```
 
-# On the first run #
-We have to authenticate to script for youtube uploads. Use the following command to do so:
+## the first run on a headless installation
+We have to authenticate to script for youtube uploads. Use the following command if you have a headless installation.
  ```sh
    python3 youtube_upload.py --noauth_local_webserver
    ```
-
-## Notes
-Make sure you have valid OAuth credentials before running the script.
-The uploaded video can be automatically assigned to a playlist if specified in the config file.
