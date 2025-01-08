@@ -1,4 +1,4 @@
-# .gitignore
+.gitignore
 *.md
 LICENSE
 config_auth_settings.cfg
