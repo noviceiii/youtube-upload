@@ -1,0 +1,29 @@
+# .gitignore
+*.md
+LICENSE
+config_auth_settings.cfg
+config_video.cfg
+youtube_client_secrets.json
+youtube_upload.py-oauth2.json
+
+# Ignore node_modules directory
+node_modules/
+
+# Ignore log files
+*.log
+
+# Ignore build directories
+dist/
+build/
+
+# Ignore environment variable files
+.env
+ 
+# Ignore OS generated files
+.DS_Store
+Thumbs.db
+ 
+# Ignore IDE specific files
+.vscode/
+.idea/
+.git/
