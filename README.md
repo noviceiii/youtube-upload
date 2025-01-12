@@ -3,6 +3,19 @@
 This script is designed to upload videos to YouTube using the Google YouTube Data API v3. It handles authentication, video upload with retry logic for better reliability, and allows specifying video details like title, description, category, privacy status, location, and language.
 Absolutely no warranty given.
 
+## Create Google Youtube credentials
+1. Go to https://console.cloud.google.com/.
+2. Create a new project.
+3. Choose from menu (or from the console start page) "APIs and services".
+4. Click "Library" and search for "Youtube Data API v3", add/allow it.
+5. Click on "Credentials" and then "+ Create Credentials". Choose..
+    .. "OAuth client ID"
+    .. Application type: "Desktop App"
+    .. give it a name
+6. Download the json of the newly created oAuth client.
+7. Save its content as youtube_client_secrets.json - or whatever matches your "client_secrets_file"-path in your config.cfg.
+
+
 ## Prerequisites
 
 - **Python 3.x**
@@ -31,9 +44,15 @@ To upload a video with default settings:
 python youtube-upload.py --videofile "/path/to/your/video.mp4"
 ```
 
+For manual authentication in environments without local browsers (headless):
+
+```bash
+python youtube-upload.py --videofile "/path/to/video.mp4" --nolocalauth
+```
+
 ## Detailed Usage
 Here are the available command-line arguments:
-
+```bash
 --videofile (required): Path to the video file you want to upload.
 --title: Title of the video (default: "Test Title").
 --description: Description of the video (default: "Test Description").
@@ -44,11 +63,7 @@ Here are the available command-line arguments:
 --latitude: Latitude of where the video was recorded (optional).
 --longitude: Longitude of where the video was recorded (optional).
 --language: Language of the video content (default: "en").
-
-## Manual authentication for environments without local browsers (headless):
-    ```bash
-    python youtube-upload.py --videofile "/path/to/video.mp4" --nolocalauth
-    ```
+```
 
 ## Examples
 1. Upload a video with custom title and description:
@@ -73,8 +88,12 @@ Here are the available command-line arguments:
 - The script will check for the existence of the video file and required configuration files before attempting to upload.
 - If authentication fails or credentials are invalid, you will be prompted to re-authenticate.
 
-Troubleshooting
+## Troubleshooting
 - If you encounter errors related to file paths, double-check your paths in both the command line and config.cfg.
 - For authentication issues, make sure your Google API project has the YouTube Data API enabled and your client secrets are correct.
 
 Happy uploading!
+
+## kudos
+See https://developers.google.com/youtube/v3/guides/uploading_a_video for reference.
+Thanks to Tokland for the inspiration https://github.com/tokland/youtube-upload.
