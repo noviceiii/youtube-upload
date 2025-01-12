@@ -29,6 +29,7 @@ To upload a video with default settings:
 
 ```bash
 python youtube-upload.py --videofile "/path/to/your/video.mp4"
+```
 
 ## Detailed Usage
 Here are the available command-line arguments:
@@ -46,11 +47,14 @@ Here are the available command-line arguments:
 
 ## Examples
 1. Upload a video with custom title and description:
+
     ```bash
     python youtube-upload.py --videofile "/path/to/video.mp4" --title "My Awesome Video" --description "This is a great video!"
+
 2. Upload with specific privacy status and keywords:
     ```bash
     python youtube-upload.py --videofile "/path/to/video.mp4" --privacyStatus "unlisted" --keywords "python, programming, tutorial"
+    
 3. Upload with location information:
     ```bash
     python youtube-upload.py --videofile "/path/to/video.mp4" --latitude 48.8566 --longitude 2.3522 --language "de"
@@ -62,6 +66,7 @@ Here are the available command-line arguments:
 ### Manual authentication for environments without local browsers:
     ```bash
     python youtube-upload.py --videofile "/path/to/video.mp4" --nolocalauth
+    ```
 
 ## Notes
 - Ensure that your client_secrets_file and oauth2_storage_file paths in the config.cfg are correct.
