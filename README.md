@@ -1,6 +1,7 @@
 # YouTube Video Uploader
 
 This script is designed to upload videos to YouTube using the Google YouTube Data API v3. It handles authentication, video upload with retry logic for better reliability, and allows specifying video details like title, description, category, privacy status, location, and language.
+Absolutely no warranty given.
 
 ## Prerequisites
 
