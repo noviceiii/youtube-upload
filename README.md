@@ -45,6 +45,11 @@ Here are the available command-line arguments:
 --longitude: Longitude of where the video was recorded (optional).
 --language: Language of the video content (default: "en").
 
+## Manual authentication for environments without local browsers (headless):
+    ```bash
+    python youtube-upload.py --videofile "/path/to/video.mp4" --nolocalauth
+    ```
+
 ## Examples
 1. Upload a video with custom title and description:
 
@@ -54,7 +59,7 @@ Here are the available command-line arguments:
 2. Upload with specific privacy status and keywords:
     ```bash
     python youtube-upload.py --videofile "/path/to/video.mp4" --privacyStatus "unlisted" --keywords "python, programming, tutorial"
-    
+
 3. Upload with location information:
     ```bash
     python youtube-upload.py --videofile "/path/to/video.mp4" --latitude 48.8566 --longitude 2.3522 --language "de"
@@ -62,11 +67,6 @@ Here are the available command-line arguments:
 4. Using all parameters:
     ```bash
     python youtube-upload.py  --videofile "/path/to/video.mp4" --title "Epic Journey" --description "A journey through the mountains" --category "17" --keywords "mountains,adventure,hiking" --privacyStatus "public" --nolocalauth --latitude 48.8566 --longitude 2.3522 --language "de"
-
-### Manual authentication for environments without local browsers:
-    ```bash
-    python youtube-upload.py --videofile "/path/to/video.mp4" --nolocalauth
-    ```
 
 ## Notes
 - Ensure that your client_secrets_file and oauth2_storage_file paths in the config.cfg are correct.
