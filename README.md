@@ -25,7 +25,7 @@ Absolutely no warranty given.
     pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
     ```
 - **Client Secrets File**
-  - Download from Google Developer Console after setting up your YouTube Data API project.
+  - Download from Google Developer Console after setting up your YouTube Data API project. Set path in config.cfg to the downloaded file.
 - **config.cfg** file with the following content:
 
     ```ini
@@ -53,16 +53,16 @@ python youtube-upload.py --videofile "/path/to/video.mp4" --nolocalauth
 ## Detailed Usage
 Here are the available command-line arguments:
 ```bash
---videofile (required): Path to the video file you want to upload.
---title: Title of the video (default: "Test Title").
---description: Description of the video (default: "Test Description").
---category: Video category ID (default: "22" which is for "People & Blogs"). Check the YouTube API documentation for valid IDs.
---keywords: Keywords for the video, comma separated (default: "").
---privacyStatus: Privacy status of the video ("public", "private", "unlisted"; default: "public").
---nolocalauth: Use manual authentication instead of local web server (useful if no local browser is available).
---latitude: Latitude of where the video was recorded (optional).
---longitude: Longitude of where the video was recorded (optional).
---language: Language of the video content (default: "en").
+<span style="color: green">--videofile (required)</span>: Path to the video file you want to upload.
+<span style="color: green">--title</span>: Title of the video (default: "Test Title").
+<span style="color: green">--description</span>: Description of the video (default: "Test Description").
+<span style="color: green">--category</span>: Video category ID (default: "22" which is for "People & Blogs"). Check the YouTube API documentation for valid IDs.
+<span style="color: green">--keywords</span>: Keywords for the video, comma separated (default: "").
+<span style="color: green">--privacyStatus</span>: Privacy status of the video ("public", "private", "unlisted"; default: "public").
+<span style="color: green">--nolocalauth</span>: Use manual authentication instead of local web server (useful if no local browser is available).
+<span style="color: green">--latitude</span>: Latitude of where the video was recorded (optional).
+<span style="color: green">--longitude</span>: Longitude of where the video was recorded (optional).
+<span style="color: green">--language</span>: Language of the video content (default: "en").
 ```
 
 ## Examples

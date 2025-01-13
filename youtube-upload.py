@@ -33,8 +33,10 @@ RETRIABLE_EXCEPTIONS = (httplib2.HttpLib2Error, IOError, http.client.NotConnecte
 RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
 
 # Check if the config file exists
-if not os.path.exists('config.cfg'):
-    sys.exit("Error: Configuration file 'config.cfg' does not exist.")
+config_file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'config.cfg')
+
+if not os.path.exists(config_file_path):
+    sys.exit(f"Error: Configuration file '{config_file_path}' does not exist.")
 
 # Load configuration from config.cfg
 config = configparser.ConfigParser()
