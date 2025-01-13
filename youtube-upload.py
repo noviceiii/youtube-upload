@@ -1,5 +1,13 @@
 #!/usr/bin/python3
 
+# This script uploads a video to YouTube using the YouTube Data API v3.
+# It uses OAuth 2.0 for authentication and authorization.
+# Usage:  python3 youtube-upload.py --videofile=VIDEO_FILE --title=VIDEO_TITLE --description=VIDEO_DESCRIPTION --category=CATEGORY_ID --keywords=KEYWORDS --privacyStatus=PRIVACY_STATUS --nolocalauth --latitude=LATITUDE --longitude=LONGITUDE --language=LANGUAGE
+
+# @version 1.0.0-pre, 2025-01-11
+# 1.0.1-pre,    2025-01-12     absolute path for config file
+
+# Required libraries
 import configparser
 import http.client
 import httplib2
