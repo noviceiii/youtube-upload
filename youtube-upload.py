@@ -48,7 +48,7 @@ if not os.path.exists(config_file_path):
 
 # Load configuration from config.cfg
 config = configparser.ConfigParser()
-config.read('config.cfg')
+config.read(config_file_path)
 
 CLIENT_SECRETS_FILE = config.get('authentication', 'client_secrets_file')
 OAUTH2_STORAGE_FILE = config.get('authentication', 'oauth2_storage_file')
