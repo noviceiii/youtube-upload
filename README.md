@@ -4,17 +4,22 @@ This script is designed to upload videos to YouTube using the Google YouTube Dat
 Absolutely no warranty given.
 
 ## Create Google Youtube credentials
-1. Go to https://console.cloud.google.com/.
-2. Create a new project.
-3. Choose from menu (or from the console start page) "APIs and services".
-4. Click "Library" and search for "Youtube Data API v3", add/allow it.
-5. Click on "Credentials" and then "+ Create Credentials". Choose..
-    .. "OAuth client ID"
-    .. Application type: "Desktop App"
-    .. give it a name
-6. Download the json of the newly created oAuth client.
-7. Save its content as youtube_client_secrets.json - or whatever matches your "client_secrets_file"-path in your config.cfg.
-
+1.  Go to  [https://console.cloud.google.com/](https://console.cloud.google.com/)
+2.  Create a new project.
+3.  Choose from menu (or from the console start page): "APIs and services"
+4.  Click
+    -   "Library"
+    -   Search for "YouTube Data API v3"
+    -   Add/allow it.
+5.  Click
+    -   "Credentials"
+    -   Then "+ Create Credentials"
+    -   Choose:
+        -   "OAuth client ID"
+        -   Application type: "Desktop App"
+        -   Give it a name
+6.  Download the JSON of the newly created OAuth client.
+7.  Save its content as youtube_client_secrets.json - or whatever matches your "client_secrets_file"-path in your config.cfg.
 
 ## Prerequisites
 
@@ -52,18 +57,17 @@ python youtube-upload.py --videofile "/path/to/video.mp4" --nolocalauth
 
 ## Detailed Usage
 Here are the available command-line arguments:
-```bash
-<span style="color: green">--videofile (required)</span>: Path to the video file you want to upload.
-<span style="color: green">--title</span>: Title of the video (default: "Test Title").
-<span style="color: green">--description</span>: Description of the video (default: "Test Description").
-<span style="color: green">--category</span>: Video category ID (default: "22" which is for "People & Blogs"). Check the YouTube API documentation for valid IDs.
-<span style="color: green">--keywords</span>: Keywords for the video, comma separated (default: "").
-<span style="color: green">--privacyStatus</span>: Privacy status of the video ("public", "private", "unlisted"; default: "public").
-<span style="color: green">--nolocalauth</span>: Use manual authentication instead of local web server (useful if no local browser is available).
-<span style="color: green">--latitude</span>: Latitude of where the video was recorded (optional).
-<span style="color: green">--longitude</span>: Longitude of where the video was recorded (optional).
-<span style="color: green">--language</span>: Language of the video content (default: "en").
-```
+
+**--videofile** (required): Path to the video file you want to upload.  
+**--title**: Title of the video (default: "Test Title").  
+**--description**: Description of the video (default: "Test Description").  
+**--category**: Video category ID (default: "22" which is for "People & Blogs"). Check the YouTube API documentation for valid IDs.  
+**--keywords**: Keywords for the video, comma separated (default: "").  
+**--privacyStatus**: Privacy status of the video ("public", "private", "unlisted"; default: "public").  
+**--nolocalauth**: Use manual authentication instead of local web server (useful if no local browser is available).  
+**--latitude**: Latitude of where the video was recorded (optional).  
+**--longitude**: Longitude of where the video was recorded (optional).  
+**--language**: Language of the video content (default: "en").
 
 ## Examples
 1. Upload a video with custom title and description:
