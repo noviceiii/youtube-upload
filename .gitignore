@@ -4,3 +4,5 @@ config.cfg
 # ignore selected files according to their extension
 *.mp4
 *.json
+*.log
+*.tmp
