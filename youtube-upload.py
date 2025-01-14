@@ -2,12 +2,12 @@
 
 # This script uploads a video to YouTube using the YouTube Data API v3.
 # It uses OAuth 2.0 for authentication and authorization.
-# Usage:  python3 youtube-upload.py --videofile=VIDEO_FILE --title=VIDEO_TITLE --description=VIDEO_DESCRIPTION --category=CATEGORY_ID --keywords=KEYWORDS --privacyStatus=PRIVACY_STATUS --nolocalauth --latitude=LATITUDE --longitude=LONGITUDE --language=LANGUAGE
+# Usage:  python3 youtube-upload.py --videofile=VIDEO_FILE --title=VIDEO_TITLE --description=VIDEO_DESCRIPTION --category=CATEGORY_ID --keywords=KEYWORDS --privacyStatus=PRIVACY_STATUS --nolocalauth --latitude=LATITUDE --longitude=LONGITUDE --language=LANGUAGE --playlistId=PLAYLIST_ID --thumbnail=THUMBNAIL_PATH --license=LICENSE --publishAt=PUBLISH_AT --publicStatsViewable --madeForKids --ageGroup=AGE_GROUP --gender=GENDER --geo=GEO
 
 # @version 1.0.0-pre, 2025-01-11
 # 1.0.1-pre,    2025-01-12     absolute path for config file
+# 1.0.2-pre,    2025-01-13     added playlistId, thumbnail, license, publishAt, publicStatsViewable, madeFor, ageGroup and childDirected parameters
 
-# Required libraries
 import configparser
 import http.client
 import httplib2
@@ -55,7 +55,7 @@ OAUTH2_STORAGE_FILE = config.get('authentication', 'oauth2_storage_file')
 
 # This OAuth 2.0 access scope allows an application to upload files to the
 # authenticated user's YouTube channel, but doesn't allow other types of access.
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
@@ -154,6 +154,7 @@ def initialize_upload(youtube, options):
             tags=tags,
             categoryId=options.category,
             defaultLanguage=options.language,
+            defaultAudioLanguage=options.defaultAudioLanguage if options.defaultAudioLanguage else None,
             recordingDetails=dict(
                 location=dict(
                     latitude=float(options.latitude) if options.latitude else None,
@@ -162,9 +163,23 @@ def initialize_upload(youtube, options):
             ) if options.latitude and options.longitude else None
         ),
         status=dict(
-            privacyStatus=options.privacyStatus
+            privacyStatus=options.privacyStatus,
+            selfDeclaredMadeForKids=options.madeForKids,
+            license=options.license,
+            publicStatsViewable=options.publicStatsViewable,
+            publishAt=options.publishAt if options.publishAt else None
         )
     )
+
+    # Adding targeting information
+    if options.ageGroup or options.gender or options.geo:
+        body['status']['targeting'] = {}
+        if options.ageGroup:
+            body['status']['targeting']['ageGroup'] = options.ageGroup
+        if options.gender:
+            body['status']['targeting']['genders'] = [options.gender]
+        if options.geo:
+            body['status']['targeting']['countries'] = options.geo.split(',')
 
     # Call the API's videos.insert method to create and upload the video.
     insert_request = youtube.videos().insert(
@@ -173,7 +188,42 @@ def initialize_upload(youtube, options):
         media_body=MediaFileUpload(options.videofile, chunksize=-1, resumable=True)
     )
 
-    resumable_upload(insert_request)
+    response = resumable_upload(insert_request)
+    
+    # Wenn ein Thumbnail angegeben wurde
+    if options.thumbnail:
+        upload_thumbnail(youtube, response['id'], options.thumbnail)
+    
+    # If a playlist ID was provided, add the video to the playlist
+    if options.playlistId:
+        add_video_to_playlist(youtube, response['id'], options.playlistId)
+
+def add_video_to_playlist(youtube, video_id, playlist_id):
+    add_video_request = youtube.playlistItems().insert(
+        part="snippet",
+        body={
+            'snippet': {
+                'playlistId': playlist_id,
+                'resourceId': {
+                    'kind': 'youtube#video',
+                    'videoId': video_id
+                }
+            }
+        }
+    )
+    response = add_video_request.execute()
+    print(f"Video {video_id} added to playlist {playlist_id}")
+
+def upload_thumbnail(youtube, video_id, thumbnail_path):
+    try:
+        request = youtube.thumbnails().set(
+            videoId=video_id,
+            media_body=MediaFileUpload(thumbnail_path)
+        )
+        response = request.execute()
+        print(f"Thumbnail uploaded for video {video_id}: {response}")
+    except HttpError as e:
+        print(f"An error occurred while uploading the thumbnail: {e}")
 
 # This method implements an exponential backoff strategy to resume a
 # failed upload.
@@ -188,8 +238,9 @@ def resumable_upload(insert_request):
             if response is not None:
                 if 'id' in response:
                     print(f"Video id '{response['id']}' was successfully uploaded.")
+                    return response
                 else:
-                    sys.exit("The upload failed with an unexpected response: %s" % response)
+                    raise Exception("The upload failed with an unexpected response: %s" % response)
         except HttpError as e:
             if e.resp.status in RETRIABLE_STATUS_CODES:
                 error = f"A retriable HTTP error {e.resp.status} occurred:\n{e.content}"
@@ -209,6 +260,8 @@ def resumable_upload(insert_request):
             print(f"Sleeping {sleep_seconds} seconds and then retrying...")
             time.sleep(sleep_seconds)
 
+    return None  # In case of failure
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
@@ -222,6 +275,16 @@ if __name__ == '__main__':
     parser.add_argument("--latitude", help="Latitude of the video location", type=float)
     parser.add_argument("--longitude", help="Longitude of the video location", type=float)
     parser.add_argument("--language", help="Language of the video", default="en")
+    parser.add_argument("--playlistId", help="ID of the playlist where the video should be added")
+    parser.add_argument("--thumbnail", help="Path to the thumbnail image file")
+    parser.add_argument("--license", choices=['youtube', 'creativeCommon'], help="License of the video", default='youtube')
+    parser.add_argument("--publishAt", help="ISO 8601 timestamp for scheduling video publish time, e.g. '2023-12-25T10:00:00Z'")
+    parser.add_argument("--publicStatsViewable", action="store_true", help="Whether video statistics should be public", default=False)
+    parser.add_argument("--madeForKids", action="store_true", help="Set if the video is made for kids", default=False)
+    parser.add_argument("--ageGroup", help="Age group for the video (e.g., 'age18_24', 'age25_34')")
+    parser.add_argument("--gender", help="Gender targeting for the video ('male', 'female')")
+    parser.add_argument("--geo", help="Geographic targeting for the video (comma-separated ISO 3166-1 alpha-2 country codes, e.g., 'US,CA,UK')")
+    parser.add_argument("--defaultAudioLanguage", help="Default audio language for the video, e.g., 'en-US'")
 
     args = parser.parse_args()
 
