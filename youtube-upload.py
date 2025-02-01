@@ -2,19 +2,19 @@
 
 # This script uploads a video to YouTube using the YouTube Data API v3.
 # It uses OAuth 2.0 for authentication and authorization.
-# Usage:  python3 youtube-upload.py --videofile=VIDEO_FILE --title=VIDEO_TITLE --description=VIDEO_DESCRIPTION --category=CATEGORY_ID --keywords=KEYWORDS --privacyStatus=PRIVACY_STATUS --nolocalauth --latitude=LATITUDE --longitude=LONGITUDE --language=LANGUAGE --playlistId=PLAYLIST_ID --thumbnail=THUMBNAIL_PATH --license=LICENSE --publishAt=PUBLISH_AT --publicStatsViewable --madeForKids --ageGroup=AGE_GROUP --gender=GENDER --geo=GEO
+# The script supports resumable uploads and sets video metadata such as title, description, keywords, and privacy status.
 
-# @version 1.0.0-pre, 2025-01-11
-# 1.0.1-pre,    2025-01-12     absolute path for config file
-# 1.0.2-pre,    2025-01-13     added playlistId, thumbnail, license, publishAt, publicStatsViewable, madeFor, ageGroup and childDirected parameters
+# @version 1.2.0, 2025-02-01    
 
 import configparser
 import http.client
 import httplib2
+import json
 import os
 import random
 import sys
 import time
+from datetime import datetime, timedelta
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -27,22 +27,17 @@ from google.oauth2.credentials import Credentials
 # we are handling retry logic ourselves.
 httplib2.RETRIES = 1
 
-# Maximum number of times to retry before giving up.
-MAX_RETRIES = 10
+# Define retriable status codes for which we'll attempt to retry the request
+RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
 
-# Always retry when these exceptions are raised.
+# Define exceptions for which we'll retry the upload
 RETRIABLE_EXCEPTIONS = (httplib2.HttpLib2Error, IOError, http.client.NotConnected,
                         http.client.IncompleteRead, http.client.ImproperConnectionState,
                         http.client.CannotSendRequest, http.client.CannotSendHeader,
                         http.client.ResponseNotReady, http.client.BadStatusLine)
 
-# Always retry when an apiclient.errors.HttpError with one of these status
-# codes is raised.
-RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
-
 # Check if the config file exists
 config_file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'config.cfg')
-
 if not os.path.exists(config_file_path):
     sys.exit(f"Error: Configuration file '{config_file_path}' does not exist.")
 
@@ -50,17 +45,22 @@ if not os.path.exists(config_file_path):
 config = configparser.ConfigParser()
 config.read(config_file_path)
 
-CLIENT_SECRETS_FILE = config.get('authentication', 'client_secrets_file')
-OAUTH2_STORAGE_FILE = config.get('authentication', 'oauth2_storage_file')
+# File paths from config.cfg
+CLIENT_SECRETS_FILE = os.path.abspath(config.get('authentication', 'client_secrets_file'))
+OAUTH2_STORAGE_FILE = os.path.abspath(config.get('authentication', 'oauth2_storage_file'))
 
-# This OAuth 2.0 access scope allows an application to upload files to the
-# authenticated user's YouTube channel, but doesn't allow other types of access.
+# Token management from config.cfg
+FORCE_TOKEN_REFRESH_DAYS = config.getint('token_management', 'force_token_refresh_days')
+
+# Upload settings from config.cfg
+MAX_RETRIES = config.getint('upload_settings', 'MAX_RETRIES')
+
+# These OAuth 2.0 scopes allow the application to upload videos and manage YouTube channels
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
-# This variable defines a message to display if the CLIENT_SECRETS_FILE is
-# missing.
+# Message to display if the CLIENT_SECRETS_FILE is missing
 MISSING_CLIENT_SECRETS_MESSAGE = """
 WARNING: Please configure OAuth 2.0
 
@@ -77,10 +77,13 @@ https://developers.google.com/api-client-library/python/guide/aaa_client_secrets
 """ % os.path.abspath(os.path.join(os.path.dirname(__file__),
                                    CLIENT_SECRETS_FILE))
 
+# Valid privacy statuses for YouTube videos
 VALID_PRIVACY_STATUSES = ("public", "private", "unlisted")
 
 def check_files():
-    # Check if required files exist
+    """
+    Check if required files exist.
+    """
     required_files = [CLIENT_SECRETS_FILE]
     for file in required_files:
         if not os.path.exists(file):
@@ -88,61 +91,108 @@ def check_files():
             sys.exit(1)
 
 def get_authenticated_service(args):
+    """
+    Get an authenticated YouTube service object.
+
+    This function checks for existing credentials, refreshes them if needed, or 
+    initiates a new authentication process if no valid credentials are found.
+    """
     creds = None
     if os.path.exists(OAUTH2_STORAGE_FILE):
         try:
-            creds = Credentials.from_authorized_user_file(OAUTH2_STORAGE_FILE, SCOPES)
+            # Load credentials from file
+            with open(OAUTH2_STORAGE_FILE, 'r') as token:
+                creds_data = token.read()
+            creds = Credentials.from_authorized_user_info(json.loads(creds_data), SCOPES)
             print(f"Existing credentials loaded: {creds}")
-        except ValueError:
-            print("The credentials file is invalid or corrupted, initiating new authentication.")
+            
+            # Token Refresh Logic
+            current_time = datetime.now()
+            expiry_str = creds.expiry.isoformat()
+
+            # Ensure expiry string includes microseconds
+            if '.' not in expiry_str:
+                expiry_str += '.000000'
+
+            expiry = datetime.strptime(expiry_str, "%Y-%m-%dT%H:%M:%S.%f")
+            
+            # Check if token should be refreshed
+            should_refresh = (current_time > expiry) or \
+                             (current_time - expiry).days >= FORCE_TOKEN_REFRESH_DAYS or \
+                             args.force_refresh
+
+            if should_refresh:
+                print("Token refresh is triggered.")
+                try:
+                    creds.refresh(Request())
+                    print("Token refreshed: ", creds)
+                    # Here we explicitly update the credentials with refreshed values
+                    creds = Credentials(
+                        token=creds.token,
+                        refresh_token=creds.refresh_token,
+                        token_uri=creds.token_uri,
+                        client_id=creds.client_id,
+                        client_secret=creds.client_secret,
+                        scopes=creds.scopes,
+                        expiry=creds.expiry
+                    )
+                    with open(OAUTH2_STORAGE_FILE, 'w') as token:
+                        token.write(creds.to_json())
+                        print(f"Updated credentials saved to {OAUTH2_STORAGE_FILE}")
+                except Exception as e:
+                    print(f"Failed to refresh token: {e}. Initiating new authentication.")
+                    os.remove(OAUTH2_STORAGE_FILE)
+                    creds = None  # Reset credentials to force new authentication
+        except ValueError as ve:
+            print(f"The credentials file is invalid or corrupted ({ve}), initiating new authentication.")
             os.remove(OAUTH2_STORAGE_FILE)
 
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            print("Refreshed credentials: ", creds)
+        flow = InstalledAppFlow.from_client_secrets_file(
+            CLIENT_SECRETS_FILE, SCOPES, redirect_uri="urn:ietf:wg:oauth:2.0:oob")
+        
+        # Set up the authorization URL with offline access and incremental authorization
+        authorization_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true'
+        )
+
+        if args.nolocalauth or not creds:  # Use manual auth if nolocalauth is set or no credentials exist
+            print("Manual authentication required.")
+            print(f"Please visit this URL to authorize the application: {authorization_url}")
+            code = input("Enter the authorization code: ")
+            print(f"Code entered: {code}")
+            flow.fetch_token(code=code)
+            creds = flow.credentials  # Get the actual credentials object
+            print(f"Credentials after fetch_token: {creds}")
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                CLIENT_SECRETS_FILE, SCOPES, redirect_uri="urn:ietf:wg:oauth:2.0:oob")
-            
-            if args.nolocalauth:
-                print("Trying manual authentication.")
-                auth_url, _ = flow.authorization_url(prompt='consent')
-                print(f"Please visit this URL to authorize the application: {auth_url}")
+            # Try to use local browser, if it fails, fallback to manual authentication
+            try:
+                creds = flow.run_local_server(port=0)
+                print(f"Credentials from local server: {creds}")
+            except Exception as e:
+                print(f"Failed to open browser ({e}), please authorize manually:")
+                print(f"Please visit this URL to authorize the application: {authorization_url}")
                 code = input("Enter the authorization code: ")
                 print(f"Code entered: {code}")
                 flow.fetch_token(code=code)
                 creds = flow.credentials  # Get the actual credentials object
-                print(f"Credentials after fetch_token: {creds}")
-            else:
-                # Try to use local browser, if it fails, fallback to manual authentication
-                try:
-                    creds = flow.run_local_server(port=0)
-                    print(f"Credentials from local server: {creds}")
-                except Exception as e:
-                    print(f"Failed to open browser ({e}), please authorize manually:")
-                    auth_url, _ = flow.authorization_url(prompt='consent')
-                    print(f"Please visit this URL to authorize the application: {auth_url}")
-                    code = input("Enter the authorization code: ")
-                    print(f"Code entered: {code}")
-                    flow.fetch_token(code=code)
-                    creds = flow.credentials  # Get the actual credentials object
-                    print(f"Credentials after manual auth: {creds}")
+                print(f"Credentials after manual auth: {creds}")
 
-        # Check if creds is not None before saving
-        if creds:
-            # Save the credentials for the next run
-            with open(OAUTH2_STORAGE_FILE, 'w') as token:
-                token.write(creds.to_json())
-                print(f"Credentials saved to {OAUTH2_STORAGE_FILE}")
-        else:
-            print("Authentication failed. No credentials were received.")
-            sys.exit(1)
+        # Save the credentials for the next run
+        with open(OAUTH2_STORAGE_FILE, 'w') as token:
+            token.write(creds.to_json())
+            print(f"Credentials saved to {OAUTH2_STORAGE_FILE}")
 
     return build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=creds)
 
 def initialize_upload(youtube, options):
+    """
+    Initialize and execute the upload process for a video to YouTube.
+
+    This function prepares the video metadata and initiates the upload.
+    """
     tags = None
     if options.keywords:
         tags = options.keywords.split(",")
@@ -190,7 +240,7 @@ def initialize_upload(youtube, options):
 
     response = resumable_upload(insert_request)
     
-    # Wenn ein Thumbnail angegeben wurde
+    # If a thumbnail was specified
     if options.thumbnail:
         upload_thumbnail(youtube, response['id'], options.thumbnail)
     
@@ -199,6 +249,9 @@ def initialize_upload(youtube, options):
         add_video_to_playlist(youtube, response['id'], options.playlistId)
 
 def add_video_to_playlist(youtube, video_id, playlist_id):
+    """
+    Add the uploaded video to a specified playlist.
+    """
     add_video_request = youtube.playlistItems().insert(
         part="snippet",
         body={
@@ -215,6 +268,9 @@ def add_video_to_playlist(youtube, video_id, playlist_id):
     print(f"Video {video_id} added to playlist {playlist_id}")
 
 def upload_thumbnail(youtube, video_id, thumbnail_path):
+    """
+    Upload a thumbnail for the video if specified.
+    """
     try:
         request = youtube.thumbnails().set(
             videoId=video_id,
@@ -225,9 +281,10 @@ def upload_thumbnail(youtube, video_id, thumbnail_path):
     except HttpError as e:
         print(f"An error occurred while uploading the thumbnail: {e}")
 
-# This method implements an exponential backoff strategy to resume a
-# failed upload.
 def resumable_upload(insert_request):
+    """
+    Implement resumable upload with exponential backoff strategy for failed uploads.
+    """
     response = None
     error = None
     retry = 0
@@ -264,14 +321,15 @@ def resumable_upload(insert_request):
 
 if __name__ == '__main__':
     import argparse
+
+    # Main parser for video upload parameters
     parser = argparse.ArgumentParser()
-    parser.add_argument("--videofile", required=True, help="Video file to upload")
+    parser.add_argument("--videofile", help="Video file to upload")
     parser.add_argument("--title", help="Video title", default="Test Title")
     parser.add_argument("--description", help="Video description", default="Test Description")
     parser.add_argument("--category", default="22", help="Numeric video category. See https://developers.google.com/youtube/v3/docs/videoCategories/list")
     parser.add_argument("--keywords", help="Video keywords, comma separated", default="")
     parser.add_argument("--privacyStatus", choices=VALID_PRIVACY_STATUSES, default=VALID_PRIVACY_STATUSES[0], help="Video privacy status.")
-    parser.add_argument("--nolocalauth", action="store_true", help="Do not use local browser for authentication")
     parser.add_argument("--latitude", help="Latitude of the video location", type=float)
     parser.add_argument("--longitude", help="Longitude of the video location", type=float)
     parser.add_argument("--language", help="Language of the video", default="en")
@@ -284,18 +342,27 @@ if __name__ == '__main__':
     parser.add_argument("--ageGroup", help="Age group for the video (e.g., 'age18_24', 'age25_34')")
     parser.add_argument("--gender", help="Gender targeting for the video ('male', 'female')")
     parser.add_argument("--geo", help="Geographic targeting for the video (comma-separated ISO 3166-1 alpha-2 country codes, e.g., 'US,CA,UK')")
-    parser.add_argument("--defaultAudioLanguage", help="Default audio language for the video, e.g., 'en-US'")
+    parser.add_argument("--defaultAudioLanguage", help="Default audio language for the video, e.g., 'de-CH'")
+    
+    # Separate group for non youtube related parameters
+    auth_group = parser.add_argument_group('Authentication or debugging related options')
+    auth_group.add_argument("--no-upload", action="store_true", help="Only authenticate, do not upload the video")
+    auth_group.add_argument("--nolocalauth", action="store_true", help="Do not use local browser for authentication")
+    auth_group.add_argument("--force-refresh", action="store_true", help="Force token refresh. Useful for debugging together with --no-upload")
 
     args = parser.parse_args()
 
-    # Check if the video file exists after parsing arguments
-    if not os.path.exists(args.videofile):
-        sys.exit("Please specify a valid file using the --videofile= parameter.")
+    # Check if videofile is required only when not using --no-upload
+    if not args.no_upload and not args.videofile:
+        sys.exit("Please specify a valid file using the --videofile= parameter if not using --no-upload. Use --help for more information.")
 
     check_files()
 
     youtube = get_authenticated_service(args)
     try:
-        initialize_upload(youtube, args)
+        if not args.no_upload:
+            initialize_upload(youtube, args)
+        else:
+            print("Authentication completed. No video uploaded.")
     except HttpError as e:
         print(f"An HTTP error {e.resp.status} occurred:\n{e.content}")
