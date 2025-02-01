@@ -1,123 +1,115 @@
-# YouTube Video Uploader
+# YouTube Upload Script
 
-This script is designed to upload videos to YouTube using the Google YouTube Data API v3. It handles authentication, video upload with retry logic for better reliability, and allows specifying video details like title, description, category, privacy status, location, and language.
+**Status:** Version 1.2.0
 
-*Absolutely no warranty given.*
+## Overview
 
-## Create Google Youtube credentials
-1.  Go to  [https://console.cloud.google.com/](https://console.cloud.google.com/)
-2.  Create a new project.
-3.  Choose from menu (or from the console start page): "APIs and services"
-4.  Click
-    -   "Library"
-    -   Search for "YouTube Data API v3"
-    -   Add/allow it.
-5.  Click
-    -   "Credentials"
-    -   Then "+ Create Credentials"
-    -   Choose:
-        -   "OAuth client ID"
-        -   Application type: "Desktop App"
-        -   Give it a name
-6.  Download the JSON of the newly created OAuth client.
-7.  Save its content as youtube_client_secrets.json - or whatever matches your "client_secrets_file"-path in your config.cfg.
+A Python script for tech enthusiasts looking to automate video uploads to YouTube with the YouTube Data API v3. It handles **OAuth 2.0** authentication, video metadata, and more, all from the command line.
+Absolutely no warranty given for anything. Use at your own discretion. 
 
-## Prerequisites
+- **Resumable Upload**: The script uses YouTube's resumable upload for handling large files or network issues.
+- **OAuth 2.0**: Configured for offline access and incremental authorization, keeping your app's permissions lean and secure.
 
-- **Python 3.x**
-- **Google API Client Library for Python**
-  - You can install it via pip:
-    ```bash
-    pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
-    ```
-- **Client Secrets File**
-  - Download from Google Developer Console after setting up your YouTube Data API project. Set path in config.cfg to the downloaded file.
-- **config.cfg** file with the following content:
+## How It Works
 
-    ```ini
-    [authentication]
-    client_secrets_file = /path/to/your/youtube_client_secrets.json
-    oauth2_storage_file = /path/to/your/youtube_oauth2_store.json
-    ```
+1. **Authentication**: Uses **OAuth 2.0** for secure access. The script either opens a local browser to authenticate or provides a URL for manual entry.
+    - **Token Management**: Automatically refreshes tokens when they expire or when forced via command line. Tokens are stored in `**youtube_oauth2_store.json**`.
+
+2. **Upload Process**: 
+    - Parses command-line arguments to define video metadata.
+    - Initiates a resumable upload to YouTube, with retry logic for reliability.
+    - Can add videos to playlists, set custom thumbnails, and specify various video settings.
+
+3. **Configuration**: Uses a `**config.cfg**` file for static settings like paths to credentials and token storage.
 
 ## Usage
 
-### Basic Usage
-
-To upload a video with default settings:
-
+**Basic Upload:**
 ```bash
-python youtube-upload.py --videofile "/path/to/your/video.mp4"
+python3 youtube-upload.py --videofile=path/to/video.mp4 --title="My Video" --description="Cool description"
 ```
 
-For manual authentication in environments without local browsers (headless):
-
+**Advanced usage:**
 ```bash
-python youtube-upload.py --videofile "/path/to/video.mp4" --nolocalauth
+python3 youtube-upload.py \
+  --videofile=./my_video.mp4 \
+  --title="Tech Deep Dive" \
+  --description="Exploring the latest in tech" \
+  --category=28 \
+  --keywords="technology,AI,innovation" \
+  --privacyStatus=public \
+  --latitude=52.5200 --longitude=13.4050 \
+  --language=de --playlistId=PLxYz12345 \
+  --thumbnail=./thumbnail.jpg \
+  --license=youtube \
+  --publishAt="2025-03-01T08:00:00Z" \
+  --publicStatsViewable \
+  --madeForKids \
+  --ageGroup=age25_34 \
+  --gender=female \
+  --geo=DE \
+  --defaultAudioLanguage=de-DE \
+  --nolocalauth \
+  --force-refresh
 ```
 
-## Parameters for the YouTube Upload Script
-This script supports a variety of parameters to customize the upload process:
+**Parameters for Youtube Upload**
+- `--videofile`: Path to the video file you want to upload.
+- `--title`: Video title (default: "Test Title").
+- `--description`: Video description (default: "Test Description").
+- `--category`: Numeric YouTube category ID.
+- `--keywords`: Comma-separated list of tags (default: "").
+- `--privacyStatus`: Privacy setting (public, private, unlisted; default: public).
+- `--latitude`, `--longitude`: Set video location (optional).
+- `--language`: Default language of the video (default: "en").
+- `--playlistId`: ID of playlist to add video to (optional).
+- `--thumbnail`: Path to thumbnail image (optional).
+- `--license`: Video license (youtube or creativeCommon; default: youtube).
+- `--publishAt`: Scheduled publish time in ISO 8601 format (optional).
+- `--publicStatsViewable`: Whether video stats should be public (optional).
+- `--madeForKids`: Indicates if the video is made for kids (optional).
+- `--ageGroup`, `--gender`, `--geo`: Targeting options for the video (optional).
+- `--defaultAudioLanguage`: Default audio language (optional).
 
-| Parameter               | Description                                                      | Example Values / Format                                                                 |
-|-------------------------|------------------------------------------------------------------|----------------------------------------------------------------------------------------|
-| `--videofile`           | Path to the video file that needs to be uploaded.                | `myvideo.mp4`                                                                          |
-| `--title`               | Title of the video.                                              | `"My New Video"`                                                                       |
-| `--description`         | Description of the video.                                        | `"A great video about..."`                                                             |
-| `--category`            | Category ID for the video. See YouTube Categories.               | `22` (People & Blogs)                                                                  |
-| `--keywords`            | Keywords for the video, separated by commas.                     | `"python, youtube, upload"`                                                            |
-| `--privacyStatus`       | Privacy status of the video.                                     | `public`, `private`, `unlisted`                                                        |
-| `--nolocalauth`         | Use authentication without local browser.                        | (Flag, no input required)                                                              |
-| `--latitude`            | Latitude of the video's location.                                | `48.137154`                                                                            |
-| `--longitude`           | Longitude of the video's location.                               | `11.576124`                                                                            |
-| `--language`            | Language of the video.                                           | `en` (default), `de`                                                                   |
-| `--playlistId`          | ID of the playlist to which the video should be added.           | `PL12345ABCDEF` for `youtube.com/playlist?list=PL12345ABCDEF`                          |
-| `--thumbnail`           | Path to the thumbnail image file.                                | `path/to/thumbnail.jpg`                                                                |
-| `--license`             | License of the video.                                            | `youtube`, `creativeCommon`                                                            |
-| `--publishAt`           | ISO 8601 timestamp for scheduling video publish time.            | `2023-12-25T10:00:00Z`                                                                 |
-| `--publicStatsViewable` | Whether video statistics should be public.                       | (Flag, no input required)                                                              |
-| `--madeForKids`         | Whether the video is made for kids. Default: false.              | (Flag, no input required)                                                              |
-| `--ageGroup`            | Target audience by age group.                                    | `age18_24`, `age25_34`                                                                 |
-| `--gender`              | Target audience by gender.                                       | `male`, `female`                                                                       |
-| `--geo`                 | Geographic targeting for the video (comma-separated country codes). | `US`, `CA`, `UK`                                                                       |
-| `--defaultAudioLanguage`| Default audio language for the video.                            | `en-US`, `de-DE`                                                                       |
+**Parameters for authentication or debugging**
+- `--nolocalauth`: Skip local browser auth, use manual code entry.
+- `--no-upload`: Authenticate only; don't upload the video.
+- `--force-refresh`: Force token refresh on script run.
 
-## Examples
-1. Upload a video with custom title and description:
 
-    ```bash
-    python youtube-upload.py --videofile="/path/to/video.mp4" --title="My Awesome Video" --description="This is a great video!"
-    ```
+## Configuration (config.cfg)
 
-2. Upload with specific privacy status and keywords:
+Please rename `config.example.cfg` to `config.cfg` and adjust the parameters accordingly.
 
-    ```bash
-    python youtube-upload.py --videofile="/path/to/video.mp4" --privacyStatus="unlisted" --keywords="python, programming, tutorial"
-    ```
+```ini
+[authentication]
+client_secrets_file = /path/to/client_secrets.json
+oauth2_storage_file = /path/to/store/oauth2_tokens.json
 
-3. Upload with location information:
+[token_management]
+force_token_refresh_days = 5
 
-    ```bash
-    python youtube-upload.py --videofile="/path/to/video.mp4" --latitude=48.8566 --longitude=2.3522 --language="de"
-    ```
+[upload_settings]
+MAX_RETRIES = 3
+```
+- **client_secrets_file**: Points to your Google API credentials. Please use absolute path.
+- **oauth2_storage_file**: Location for storing OAuth tokens. Please use absolute path.
+- **force_token_refresh_days**: Days before forcing token refresh.
+- **MAX_RETRIES**: Number of retry attempts for upload.
 
-4. Update with some more stuff:
+## Setup
 
-    ```bash
-    python youtube-upload.py --videofile="/path/to/video.mp4" --title="Epic Journey" --description="A journey through the mountains" --category="17" --keywords="mountains,adventure,hiking" --privacyStatus="public" --nolocalauth --latitude=48.8566 --longitude=2.3522 --language="de"
-    ```
+### Python
+Requires Python 3.
 
-## Notes
-- Ensure that your client_secrets_file and oauth2_storage_file paths in the config.cfg are correct.
-- The script will check for the existence of the video file and required configuration files before attempting to upload.
-- If authentication fails or credentials are invalid, you will be prompted to re-authenticate.
+### Libraries
+```bash
+pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+```
 
-## Troubleshooting
-- If you encounter errors related to file paths, double-check your paths in both the command line and config.cfg.
-- For authentication issues, make sure your Google API project has the YouTube Data API enabled and your client secrets are correct.
+### Google API
+- Enable YouTube Data API v3 on Google Cloud Console.
+- Create credentials for a Desktop app, download `client_secrets.json`, and place it at `client_secrets_file`.
 
-Happy uploading!
-
-## kudos
-See https://developers.google.com/youtube/v3/guides/uploading_a_video for reference.
-Thanks to Tokland for the inspiration https://github.com/tokland/youtube-upload.
+## Contributions
+This project is open for contributions. Enhancements, bug fixes, or new features? Fork and PR!
