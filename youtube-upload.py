@@ -4,7 +4,7 @@
 # It uses OAuth 2.0 for authentication and authorization, adapted for headless systems.
 # The script supports resumable uploads and sets video metadata such as title, description, keywords, and privacy status.
 
-# @version 1.2.7, 2025-03-11
+# @version 1.2.1, 2025-03-11
 
 import configparser
 import http.client
@@ -14,7 +14,7 @@ import os
 import random
 import sys
 import time
-from datetime import datetime, timedelta, UTC  # Import UTC for timezone-aware datetime
+from datetime import datetime, timedelta, timezone  # Use timezone.utc instead of UTC
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -97,6 +97,7 @@ def get_authenticated_service(args):
 
     Ensures correct handling of token expiry for automatic refresh.
     Keeps creds.expiry offset-naive for library compatibility, uses custom expiry check with timezone-aware current_time.
+    Compatible with Python 3.9+ using timezone.utc.
     """
     creds = None
     
@@ -108,7 +109,7 @@ def get_authenticated_service(args):
             creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
             print(f"Existing credentials: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10]}...")
             
-            current_time = datetime.now(UTC)  # Timezone-aware UTC
+            current_time = datetime.now(timezone.utc)  # Timezone-aware UTC
             should_refresh = False
             
             if not creds.refresh_token:
@@ -117,7 +118,7 @@ def get_authenticated_service(args):
             elif creds.expiry:
                 # Do not modify creds.expiry to keep it offset-naive for library compatibility
                 # Convert to timezone-aware for our comparison
-                expiry_aware = creds.expiry.replace(tzinfo=UTC)
+                expiry_aware = creds.expiry.replace(tzinfo=timezone.utc)
                 time_to_expiry = expiry_aware - current_time
                 print(f"Token expiry: {creds.expiry}, time to expiry: {time_to_expiry}")
                 # Custom expiry check
