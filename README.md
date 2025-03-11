@@ -1,6 +1,6 @@
 # YouTube Upload Script
 
-**Status:** Version 1.2.0
+**Status:** Version 1.2.1
 
 ## Overview
 
@@ -72,7 +72,6 @@ python3 youtube-upload.py \
 - `--defaultAudioLanguage`: Default audio language (optional).
 
 **Parameters for authentication or debugging**
-- `--nolocalauth`: Skip local browser auth, use manual code entry.
 - `--no-upload`: Authenticate only; don't upload the video.
 - `--force-refresh`: Force token refresh on script run.
 
