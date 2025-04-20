@@ -3,8 +3,9 @@
 # This script uploads a video to YouTube using the YouTube Data API v3.
 # It uses OAuth 2.0 for authentication and authorization, adapted for headless systems.
 # The script supports resumable uploads and sets video metadata such as title, description, keywords, and privacy status.
+# Enhanced to handle automatic token refresh to prevent manual re-authentication.
 
-# @version 1.2.1, 2025-03-11
+# @version 1.2.2, 2025-04-20
 
 import configparser
 import http.client
@@ -14,7 +15,8 @@ import os
 import random
 import sys
 import time
-from datetime import datetime, timedelta, timezone  # Use timezone.utc instead of UTC
+import logging
+from datetime import datetime, timedelta, timezone
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -23,6 +25,17 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('youtube_upload.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 httplib2.RETRIES = 1
 RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
@@ -69,7 +82,7 @@ def check_files():
     required_files = [CLIENT_SECRETS_FILE]
     for file in required_files:
         if not os.path.exists(file):
-            print(f"Error: Required file {file} does not exist.")
+            logger.error(f"Required file {file} does not exist.")
             sys.exit(1)
 
 def refresh_token_with_retry(creds):
@@ -79,14 +92,18 @@ def refresh_token_with_retry(creds):
     while retry_count < max_retries:
         try:
             creds.refresh(Request())
-            print(f"Refresh successful: new expiry={creds.expiry}")
+            logger.info(f"Token refresh successful: new expiry={creds.expiry}")
+            # Persist refreshed credentials immediately
+            with open(OAUTH2_STORAGE_FILE, 'w') as token:
+                json.dump(json.loads(creds.to_json()), token)
+                logger.info(f"Refreshed credentials saved to {OAUTH2_STORAGE_FILE}")
             return True
         except HttpError as e:
-            print(f"HttpError refreshing token (attempt {retry_count+1}): status={e.resp.status}, content={e.content}")
+            logger.error(f"HttpError refreshing token (attempt {retry_count+1}): status={e.resp.status}, content={e.content}")
         except RefreshError as e:
-            print(f"RefreshError refreshing token (attempt {retry_count+1}): {e}")
+            logger.error(f"RefreshError refreshing token (attempt {retry_count+1}): {e}")
         except Exception as e:
-            print(f"Unexpected error refreshing token (attempt {retry_count+1}): {e}")
+            logger.error(f"Unexpected error refreshing token (attempt {retry_count+1}): {e}")
         retry_count += 1
         time.sleep(2 ** retry_count)
     return False
@@ -95,8 +112,9 @@ def get_authenticated_service(args):
     """
     Get an authenticated YouTube service object for headless systems.
 
-    Ensures correct handling of token expiry for automatic refresh.
-    Keeps creds.expiry offset-naive for library compatibility, uses custom expiry check with timezone-aware current_time.
+    Ensures robust token refresh to avoid manual re-authentication.
+    Proactively refreshes tokens before expiry or when invalid.
+    Persists credentials after every refresh.
     Compatible with Python 3.9+ using timezone.utc.
     """
     creds = None
@@ -105,89 +123,79 @@ def get_authenticated_service(args):
         try:
             with open(OAUTH2_STORAGE_FILE, 'r') as token:
                 creds_data = json.load(token)
-            print(f"Loaded credentials data: {creds_data}")
+            logger.info(f"Loaded credentials data: {creds_data.get('token', '')[0:10]}..., expiry={creds_data.get('expiry')}")
             creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
-            print(f"Existing credentials: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10]}...")
+            logger.info(f"Existing credentials: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10]}...")
             
             current_time = datetime.now(timezone.utc)  # Timezone-aware UTC
             should_refresh = False
             
             if not creds.refresh_token:
-                print("No refresh token available, forcing new authentication.")
+                logger.warning("No refresh token available, forcing new authentication.")
                 should_refresh = True
             elif creds.expiry:
-                # Do not modify creds.expiry to keep it offset-naive for library compatibility
-                # Convert to timezone-aware for our comparison
                 expiry_aware = creds.expiry.replace(tzinfo=timezone.utc)
                 time_to_expiry = expiry_aware - current_time
-                print(f"Token expiry: {creds.expiry}, time to expiry: {time_to_expiry}")
-                # Custom expiry check
-                is_expired = current_time >= expiry_aware
-                should_refresh = (is_expired or 
-                                  time_to_expiry.total_seconds() < 300 or  # Refresh if less than 5 minutes remaining
-                                  time_to_expiry.days <= -FORCE_TOKEN_REFRESH_DAYS or
-                                  args.force_refresh)
+                logger.info(f"Token expiry: {creds.expiry}, time to expiry: {time_to_expiry}")
+                should_refresh = (
+                    creds.expired or
+                    time_to_expiry.total_seconds() < 600 or  # Refresh if less than 10 minutes remaining
+                    time_to_expiry.days <= -FORCE_TOKEN_REFRESH_DAYS or
+                    args.force_refresh
+                )
             else:
-                print("No expiry set in credentials, forcing refresh.")
+                logger.warning("No expiry set in credentials, forcing refresh.")
                 should_refresh = True
 
             if should_refresh and creds and creds.refresh_token:
-                print("Attempting to refresh token.")
+                logger.info("Attempting to refresh token.")
                 success = refresh_token_with_retry(creds)
-                if success:
-                    print(f"Token refreshed: token={creds.token[:10]}..., expiry={creds.expiry}")
-                    with open(OAUTH2_STORAGE_FILE, 'w') as token:
-                        json.dump(json.loads(creds.to_json()), token)
-                        print(f"Updated credentials saved to {OAUTH2_STORAGE_FILE}")
-                else:
-                    print("Token refresh failed after retries, forcing new authentication.")
+                if not success:
+                    logger.error("Token refresh failed after retries, forcing new authentication.")
                     os.remove(OAUTH2_STORAGE_FILE)
                     creds = None
                     
         except (ValueError, json.JSONDecodeError) as e:
-            print(f"Invalid or corrupted credentials file ({e}), initiating new authentication.")
+            logger.error(f"Invalid or corrupted credentials file ({e}), initiating new authentication.")
             os.remove(OAUTH2_STORAGE_FILE)
             creds = None
 
     if not creds or not creds.valid:
-        print("No valid credentials found, initiating manual authentication for headless system.")
+        logger.info("No valid credentials found, initiating manual authentication for headless system.")
         flow = InstalledAppFlow.from_client_secrets_file(
             CLIENT_SECRETS_FILE, SCOPES, redirect_uri="urn:ietf:wg:oauth:2.0:oob")
         
         authorization_url, _ = flow.authorization_url(
             access_type='offline',
-            include_granted_scopes='true'
+            include_granted_scopes='true',
+            prompt='consent'  # Ensure refresh token is always returned
         )
         
-        print(f"Please visit this URL on a device with a browser to authorize the application:")
-        print(authorization_url)
+        logger.info(f"Please visit this URL on a device with a browser to authorize the application: {authorization_url}")
+        print(f"Please visit this URL to authorize the application:\n{authorization_url}")
         code = input("Enter the authorization code: ").strip()
-        print(f"Code entered: {code}")
+        logger.info(f"Authorization code entered: {code}")
         
         try:
             flow.fetch_token(code=code)
             creds = flow.credentials
-            print(f"Credentials obtained: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10]}...")
+            logger.info(f"Credentials obtained: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10]}...")
             if not creds.expiry:
-                print("Warning: No expiry set after initial authentication, setting manually.")
-                creds.expiry = datetime.utcnow() + timedelta(seconds=3600)  # Keep offset-naive for library
-        except Exception as e:
-            print(f"Failed to fetch token with code: {e}")
-            sys.exit(1)
-
-        with open(OAUTH2_STORAGE_FILE, 'w') as token:
-            json.dump(json.loads(creds.to_json()), token)
-            print(f"Credentials saved to {OAUTH2_STORAGE_FILE}, expiry={creds.expiry}")
-
-    if creds and not creds.valid and creds.refresh_token:
-        print("Credentials invalid but refresh token available, attempting final refresh.")
-        success = refresh_token_with_retry(creds)
-        if success:
+                logger.warning("No expiry set after initial authentication, setting manually.")
+                creds.expiry = datetime.utcnow() + timedelta(seconds=3600)  # Keep offset-naive
             with open(OAUTH2_STORAGE_FILE, 'w') as token:
                 json.dump(json.loads(creds.to_json()), token)
-            print(f"Credentials refreshed: token={creds.token[:10]}..., expiry={creds.expiry}")
-        else:
-            print("Final refresh attempt failed. Please re-authenticate manually.")
+                logger.info(f"Credentials saved to {OAUTH2_STORAGE_FILE}, expiry={creds.expiry}")
+        except Exception as e:
+            logger.error(f"Failed to fetch token with code: {e}")
+            sys.exit(1)
+
+    # Final validation and refresh if necessary
+    if creds and (not creds.valid or creds.expired) and creds.refresh_token:
+        logger.info("Credentials invalid or expired but refresh token available, attempting final refresh.")
+        success = refresh_token_with_retry(creds)
+        if not success:
+            logger.error("Final refresh attempt failed. Please re-authenticate manually.")
             os.remove(OAUTH2_STORAGE_FILE)
             sys.exit(1)
 
@@ -261,7 +269,7 @@ def add_video_to_playlist(youtube, video_id, playlist_id):
         }
     )
     response = add_video_request.execute()
-    print(f"Video {video_id} added to playlist {playlist_id}")
+    logger.info(f"Video {video_id} added to playlist {playlist_id}")
 
 def upload_thumbnail(youtube, video_id, thumbnail_path):
     """Upload a thumbnail for the video if specified."""
@@ -271,9 +279,9 @@ def upload_thumbnail(youtube, video_id, thumbnail_path):
             media_body=MediaFileUpload(thumbnail_path)
         )
         response = request.execute()
-        print(f"Thumbnail uploaded for video {video_id}: {response}")
+        logger.info(f"Thumbnail uploaded for video {video_id}: {response}")
     except HttpError as e:
-        print(f"An error occurred while uploading the thumbnail: {e}")
+        logger.error(f"An error occurred while uploading the thumbnail: {e}")
 
 def resumable_upload(insert_request):
     """Implement resumable upload with exponential backoff strategy."""
@@ -282,11 +290,11 @@ def resumable_upload(insert_request):
     retry = 0
     while response is None:
         try:
-            print("Uploading file...")
+            logger.info("Uploading file...")
             status, response = insert_request.next_chunk()
             if response is not None:
                 if 'id' in response:
-                    print(f"Video id '{response['id']}' was successfully uploaded.")
+                    logger.info(f"Video id '{response['id']}' was successfully uploaded.")
                     return response
                 else:
                     raise Exception(f"The upload failed with an unexpected response: {response}")
@@ -299,13 +307,13 @@ def resumable_upload(insert_request):
             error = f"A retriable error occurred: {e}"
 
         if error is not None:
-            print(error)
+            logger.error(error)
             retry += 1
             if retry > MAX_RETRIES:
                 sys.exit("No longer attempting to retry.")
             max_sleep = 2 ** retry
             sleep_seconds = random.random() * max_sleep
-            print(f"Sleeping {sleep_seconds} seconds and then retrying...")
+            logger.info(f"Sleeping {sleep_seconds} seconds and then retrying...")
             time.sleep(sleep_seconds)
 
     return None
@@ -350,6 +358,6 @@ if __name__ == '__main__':
         if not args.no_upload:
             initialize_upload(youtube, args)
         else:
-            print("Authentication completed. No video uploaded.")
+            logger.info("Authentication completed. No video uploaded.")
     except HttpError as e:
-        print(f"An HTTP error {e.resp.status} occurred:\n{e.content}")
+        logger.error(f"An HTTP error {e.resp.status} occurred:\n{e.content}")
