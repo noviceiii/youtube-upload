@@ -5,7 +5,7 @@
 # The script supports resumable uploads and sets video metadata such as title, description, keywords, and privacy status.
 # Enhanced to handle automatic token refresh to prevent manual re-authentication.
 
-# @version 1.2.2, 2025-04-20
+# @version 1.3.0, 2025-05-05
 
 import configparser
 import http.client
@@ -25,25 +25,9 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+import urllib.error
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('youtube_upload.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-httplib2.RETRIES = 1
-RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
-RETRIABLE_EXCEPTIONS = (httplib2.HttpLib2Error, IOError, http.client.NotConnected,
-                        http.client.IncompleteRead, http.client.ImproperConnectionState,
-                        http.client.CannotSendRequest, http.client.CannotSendHeader,
-                        http.client.ResponseNotReady, http.client.BadStatusLine)
-
+# Load configuration from config.cfg
 config_file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'config.cfg')
 if not os.path.exists(config_file_path):
     sys.exit(f"Error: Configuration file '{config_file_path}' does not exist.")
@@ -51,11 +35,50 @@ if not os.path.exists(config_file_path):
 config = configparser.ConfigParser()
 config.read(config_file_path)
 
+# Authentication settings
 CLIENT_SECRETS_FILE = os.path.abspath(config.get('authentication', 'client_secrets_file'))
 OAUTH2_STORAGE_FILE = os.path.abspath(config.get('authentication', 'oauth2_storage_file'))
+
+# Token management settings
 FORCE_TOKEN_REFRESH_DAYS = config.getint('token_management', 'force_token_refresh_days')
+REFRESH_TIMEOUT = config.getint('token_management', 'refresh_timeout', fallback=30)
+
+# Upload settings
 MAX_RETRIES = config.getint('upload_settings', 'MAX_RETRIES')
 
+# Logging settings
+LOG_FILE = config.get('logging', 'log_file', fallback='/var/log/youtube_upload.log')
+LOG_LEVEL = config.get('logging', 'log_level', fallback='INFO').upper()
+
+# Map string log levels to logging module constants
+LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
+
+# Configure logging
+logging.basicConfig(
+    level=LOG_LEVELS.get(LOG_LEVEL, logging.INFO),
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# HTTP settings
+httplib2.RETRIES = 1
+RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
+RETRIABLE_EXCEPTIONS = (httplib2.HttpLib2Error, IOError, http.client.NotConnected,
+                        http.client.IncompleteRead, http.client.ImproperConnectionState,
+                        http.client.CannotSendRequest, http.client.CannotSendHeader,
+                        http.client.ResponseNotReady, http.client.BadStatusLine)
+
+# OAuth 2.0 and API settings
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
@@ -88,10 +111,9 @@ def check_files():
 def refresh_token_with_retry(creds):
     """Attempt to refresh the token with retries."""
     retry_count = 0
-    max_retries = 3
-    while retry_count < max_retries:
+    while retry_count < MAX_RETRIES:
         try:
-            creds.refresh(Request())
+            creds.refresh(Request())  # Removed timeout argument
             logger.info(f"Token refresh successful: new expiry={creds.expiry}")
             # Persist refreshed credentials immediately
             with open(OAUTH2_STORAGE_FILE, 'w') as token:
@@ -99,13 +121,18 @@ def refresh_token_with_retry(creds):
                 logger.info(f"Refreshed credentials saved to {OAUTH2_STORAGE_FILE}")
             return True
         except HttpError as e:
-            logger.error(f"HttpError refreshing token (attempt {retry_count+1}): status={e.resp.status}, content={e.content}")
+            logger.error(f"HttpError refreshing token (attempt {retry_count+1}/{MAX_RETRIES}): status={e.resp.status}, content={e.content}")
         except RefreshError as e:
-            logger.error(f"RefreshError refreshing token (attempt {retry_count+1}): {e}")
+            logger.error(f"RefreshError refreshing token (attempt {retry_count+1}/{MAX_RETRIES}): {e}")
+        except urllib.error.URLError as e:
+            logger.error(f"Network error refreshing token (attempt {retry_count+1}/{MAX_RETRIES}): {e}")
         except Exception as e:
-            logger.error(f"Unexpected error refreshing token (attempt {retry_count+1}): {e}")
+            logger.error(f"Unexpected error refreshing token (attempt {retry_count+1}/{MAX_RETRIES}): {e}")
         retry_count += 1
-        time.sleep(2 ** retry_count)
+        sleep_seconds = (2 ** retry_count) + random.random()  # Exponential backoff with jitter
+        logger.info(f"Retrying token refresh in {sleep_seconds:.2f} seconds...")
+        time.sleep(sleep_seconds)
+    logger.error(f"Token refresh failed after {MAX_RETRIES} retries.")
     return False
 
 def get_authenticated_service(args):
@@ -123,10 +150,11 @@ def get_authenticated_service(args):
         try:
             with open(OAUTH2_STORAGE_FILE, 'r') as token:
                 creds_data = json.load(token)
-            logger.info(f"Loaded credentials data: {creds_data.get('token', '')[0:10]}..., expiry={creds_data.get('expiry')}")
+            logger.info(f"Loaded credentials data: token={creds_data.get('token', '')[0:10]}..., expiry={creds_data.get('expiry')}")
             creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
-            logger.info(f"Existing credentials: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10]}...")
-            
+            logger.info(f"Existing credentials: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10] if creds.refresh_token else 'None'}...")
+
+            # Current time for comparison with token expiry
             current_time = datetime.now(timezone.utc)  # Timezone-aware UTC
             should_refresh = False
             
@@ -134,13 +162,13 @@ def get_authenticated_service(args):
                 logger.warning("No refresh token available, forcing new authentication.")
                 should_refresh = True
             elif creds.expiry:
-                expiry_aware = creds.expiry.replace(tzinfo=timezone.utc)
+                expiry_aware = creds.expiry.replace(tzinfo=timezone.utc) if creds.expiry.tzinfo is None else creds.expiry
                 time_to_expiry = expiry_aware - current_time
                 logger.info(f"Token expiry: {creds.expiry}, time to expiry: {time_to_expiry}")
                 should_refresh = (
                     creds.expired or
                     time_to_expiry.total_seconds() < 600 or  # Refresh if less than 10 minutes remaining
-                    time_to_expiry.days <= -FORCE_TOKEN_REFRESH_DAYS or
+                    time_to_expiry.total_seconds() <= FORCE_TOKEN_REFRESH_DAYS * 24 * 60 * 60 or  # Refresh if within refresh window
                     args.force_refresh
                 )
             else:
@@ -154,9 +182,17 @@ def get_authenticated_service(args):
                     logger.error("Token refresh failed after retries, forcing new authentication.")
                     os.remove(OAUTH2_STORAGE_FILE)
                     creds = None
+                elif not creds.valid:
+                    logger.warning("Refreshed token is still invalid, forcing new authentication.")
+                    os.remove(OAUTH2_STORAGE_FILE)
+                    creds = None
                     
         except (ValueError, json.JSONDecodeError) as e:
             logger.error(f"Invalid or corrupted credentials file ({e}), initiating new authentication.")
+            os.remove(OAUTH2_STORAGE_FILE)
+            creds = None
+        except Exception as e:
+            logger.error(f"Unexpected error loading credentials ({e}), initiating new authentication.")
             os.remove(OAUTH2_STORAGE_FILE)
             creds = None
 
@@ -168,7 +204,7 @@ def get_authenticated_service(args):
         authorization_url, _ = flow.authorization_url(
             access_type='offline',
             include_granted_scopes='true',
-            prompt='consent'  # Ensure refresh token is always returned
+            prompt='select_account'  # Use select_account to avoid invalidating existing refresh tokens
         )
         
         logger.info(f"Please visit this URL on a device with a browser to authorize the application: {authorization_url}")
@@ -179,10 +215,10 @@ def get_authenticated_service(args):
         try:
             flow.fetch_token(code=code)
             creds = flow.credentials
-            logger.info(f"Credentials obtained: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10]}...")
+            logger.info(f"Credentials obtained: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10] if creds.refresh_token else 'None'}...")
             if not creds.expiry:
                 logger.warning("No expiry set after initial authentication, setting manually.")
-                creds.expiry = datetime.utcnow() + timedelta(seconds=3600)  # Keep offset-naive
+                creds.expiry = datetime.now(timezone.utc) + timedelta(seconds=3600)  # Set to 1 hour
             with open(OAUTH2_STORAGE_FILE, 'w') as token:
                 json.dump(json.loads(creds.to_json()), token)
                 logger.info(f"Credentials saved to {OAUTH2_STORAGE_FILE}, expiry={creds.expiry}")
@@ -310,7 +346,7 @@ def resumable_upload(insert_request):
             logger.error(error)
             retry += 1
             if retry > MAX_RETRIES:
-                sys.exit("No longer attempting to retry.")
+                sys.exit(f"No longer attempting to retry after {MAX_RETRIES} attempts.")
             max_sleep = 2 ** retry
             sleep_seconds = random.random() * max_sleep
             logger.info(f"Sleeping {sleep_seconds} seconds and then retrying...")
