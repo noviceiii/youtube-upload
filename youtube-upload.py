@@ -17,6 +17,8 @@ import random
 import sys
 import time
 import logging
+import threading
+import queue
 from datetime import datetime, timedelta, timezone
 
 from googleapiclient.discovery import build  # Build API client
@@ -202,7 +204,7 @@ def refresh_token_with_retry(creds):
         except Exception as e:
             logger.error(f"Unexpected error refreshing token (attempt {retry_count+1}/{MAX_RETRIES}): {e}")
         retry_count += 1
-        sleep_seconds = (2 ** retry_count) + random.random()  # Exponential backoff with jitter
+        sleep_seconds = max(30, (2 ** retry_count)) + random.random()  # Exponential backoff with jitter, minimum 30s
         logger.info(f"Retrying token refresh in {sleep_seconds:.2f} seconds...")
         time.sleep(sleep_seconds)
     logger.error(f"Token refresh failed after {MAX_RETRIES} retries.")
@@ -351,7 +353,7 @@ def initialize_upload(youtube, options):
             media_body=MediaFileUpload(options.videofile, chunksize=-1, resumable=True)  # Enable resumable upload
         )
 
-        response = resumable_upload(insert_request)  # Perform upload
+        response = resumable_upload(insert_request, enable_pause=options.enable_pause)  # Perform upload
         if response is None:  # Check if upload failed
             logger.error("Upload failed after retries.")
             sys.exit(1)  # Exit with non-zero status code
@@ -398,18 +400,86 @@ def upload_thumbnail(youtube, video_id, thumbnail_path):
     except HttpError as e:
         logger.error(f"An error occurred while uploading the thumbnail: {e}")
 
-def resumable_upload(insert_request):
-    """Implement resumable upload with exponential backoff strategy."""
+class KeyboardInputHandler:
+    """Handle non-blocking keyboard input for pause/resume functionality."""
+    def __init__(self):
+        self.input_queue = queue.Queue()
+        self.running = False
+        self.thread = None
+    
+    def _input_thread(self):
+        """Background thread that listens for keyboard input.
+        Note: input() blocks, but since this runs in a daemon thread,
+        it doesn't block the main upload process."""
+        while self.running:
+            try:
+                key = input()
+                self.input_queue.put(key)
+            except EOFError:
+                break
+            except Exception:
+                break
+    
+    def start(self):
+        """Start the keyboard input listener thread."""
+        if not self.running:
+            self.running = True
+            self.thread = threading.Thread(target=self._input_thread, daemon=True)
+            self.thread.start()
+    
+    def stop(self):
+        """Stop the keyboard input listener thread."""
+        self.running = False
+    
+    def get_input(self):
+        """Get input from the queue if available, non-blocking."""
+        try:
+            return self.input_queue.get_nowait()
+        except queue.Empty:
+            return None
+
+def resumable_upload(insert_request, enable_pause=False):
+    """Implement resumable upload with exponential backoff strategy and optional pause/resume."""
     response = None
     error = None
     retry = 0
+    
+    # Initialize keyboard input handler if pause is enabled
+    keyboard_handler = None
+    paused = False
+    if enable_pause:
+        keyboard_handler = KeyboardInputHandler()
+        keyboard_handler.start()
+        logger.info("Press 'p' to pause the upload")
+        print("Press 'p' to pause the upload")
+    
     while response is None and retry <= MAX_RETRIES:  # Retry up to MAX_RETRIES
         try:
+            # Check for pause/resume input if enabled
+            if enable_pause and keyboard_handler:
+                key_input = keyboard_handler.get_input()
+                if key_input and key_input.lower() == 'p':
+                    if not paused:
+                        paused = True
+                        logger.info("Upload paused. Press 'p' to resume...")
+                        print("\nUpload paused. Press 'p' to resume...")
+                    else:
+                        paused = False
+                        logger.info("Upload resumed")
+                        print("Upload resumed")
+            
+            # Wait while paused
+            if paused:
+                time.sleep(0.5)
+                continue
+            
             logger.info("Uploading file...")
             status, response = insert_request.next_chunk()  # Upload next chunk
             if response is not None:
                 if 'id' in response:  # Check if upload succeeded
                     logger.info(f"Video id '{response['id']}' was successfully uploaded.")
+                    if keyboard_handler:
+                        keyboard_handler.stop()
                     return response
                 else:
                     raise Exception(f"The upload failed with an unexpected response: {response}")
@@ -418,6 +488,8 @@ def resumable_upload(insert_request):
                 error = f"A retriable HTTP error {e.resp.status} occurred:\n{e.content}"
             else:
                 logger.error(f"Non-retriable HTTP error {e.resp.status} occurred: {e.content}")
+                if keyboard_handler:
+                    keyboard_handler.stop()
                 raise  # Raise non-retriable errors (e.g., 400)
         except RETRIABLE_EXCEPTIONS as e:  # Retry on specific exceptions
             error = f"A retriable error occurred: {e}"
@@ -427,12 +499,15 @@ def resumable_upload(insert_request):
             retry += 1
             if retry > MAX_RETRIES:  # Return None if max retries exceeded
                 logger.error(f"Upload failed after {MAX_RETRIES} retries.")
+                if keyboard_handler:
+                    keyboard_handler.stop()
                 return None
-            max_sleep = 2 ** retry
-            sleep_seconds = random.random() * max_sleep  # Exponential backoff
-            logger.info(f"Sleeping {sleep_seconds} seconds and then retrying...")
+            sleep_seconds = max(30, (2 ** retry)) + random.random()  # Exponential backoff with jitter, minimum 30s
+            logger.info(f"Retrying upload (attempt {retry}/{MAX_RETRIES}) in {sleep_seconds:.2f} seconds...")
             time.sleep(sleep_seconds)
 
+    if keyboard_handler:
+        keyboard_handler.stop()
     return None
 
 if __name__ == '__main__':
@@ -458,6 +533,7 @@ if __name__ == '__main__':
     parser.add_argument("--gender", help="Gender targeting for the video ('male', 'female')")
     parser.add_argument("--geo", help="Geographic targeting (comma-separated ISO 3166-1 alpha-2 country codes)")
     parser.add_argument("--defaultAudioLanguage", help="Default audio language for the video")
+    parser.add_argument("--enable-pause", action="store_true", help="Enable interactive pause/resume during upload", default=False)
     
     auth_group = parser.add_argument_group('Authentication or debugging related options')
     auth_group.add_argument("--no-upload", action="store_true", help="Only authenticate, do not upload the video")
