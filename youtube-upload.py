@@ -353,7 +353,7 @@ def initialize_upload(youtube, options):
             media_body=MediaFileUpload(options.videofile, chunksize=-1, resumable=True)  # Enable resumable upload
         )
 
-        response = resumable_upload(insert_request, enable_pause=options.enable_pause if hasattr(options, 'enable_pause') else False)  # Perform upload
+        response = resumable_upload(insert_request, enable_pause=options.enable_pause)  # Perform upload
         if response is None:  # Check if upload failed
             logger.error("Upload failed after retries.")
             sys.exit(1)  # Exit with non-zero status code
@@ -408,7 +408,9 @@ class KeyboardInputHandler:
         self.thread = None
     
     def _input_thread(self):
-        """Background thread that listens for keyboard input."""
+        """Background thread that listens for keyboard input.
+        Note: input() blocks, but since this runs in a daemon thread,
+        it doesn't block the main upload process."""
         while self.running:
             try:
                 key = input()
@@ -501,7 +503,7 @@ def resumable_upload(insert_request, enable_pause=False):
                     keyboard_handler.stop()
                 return None
             sleep_seconds = max(30, (2 ** retry)) + random.random()  # Exponential backoff with jitter, minimum 30s
-            logger.info(f"Sleeping {sleep_seconds:.2f} seconds and then retrying...")
+            logger.info(f"Retrying upload (attempt {retry}/{MAX_RETRIES}) in {sleep_seconds:.2f} seconds...")
             time.sleep(sleep_seconds)
 
     if keyboard_handler:
