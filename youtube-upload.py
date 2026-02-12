@@ -30,6 +30,13 @@ from google.auth.transport.requests import Request  # HTTP request for token ref
 from google.oauth2.credentials import Credentials  # Manage OAuth credentials
 import urllib.error  # Handle URL-related errors
 
+# Try to import Twilio for WhatsApp notifications (optional)
+try:
+    from twilio.rest import Client as TwilioClient
+    TWILIO_AVAILABLE = True
+except ImportError:
+    TWILIO_AVAILABLE = False
+
 # Load configuration from config.cfg
 config_file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'config.cfg')  # Path to config file
 try:
@@ -67,6 +74,34 @@ try:
     LOG_LEVEL = config.get('logging', 'log_level', fallback='INFO').upper()  # Log level (e.g., INFO, DEBUG)
 except configparser.NoSectionError as e:
     print(f"Error: Missing [logging] section in config file: {e}")
+    sys.exit(1)
+
+# WhatsApp notification settings
+WHATSAPP_ENABLED = False
+TWILIO_ACCOUNT_SID = None
+TWILIO_AUTH_TOKEN = None
+TWILIO_WHATSAPP_FROM = None
+WHATSAPP_TO = None
+
+try:
+    if config.has_section('whatsapp_notification'):
+        WHATSAPP_ENABLED = config.getboolean('whatsapp_notification', 'enabled', fallback=False)
+        if WHATSAPP_ENABLED:
+            if not TWILIO_AVAILABLE:
+                logger_temp = logging.getLogger(__name__)
+                logger_temp.warning("WhatsApp notifications enabled but twilio library not installed. Run: pip install twilio")
+                WHATSAPP_ENABLED = False
+            else:
+                TWILIO_ACCOUNT_SID = config.get('whatsapp_notification', 'twilio_account_sid')
+                TWILIO_AUTH_TOKEN = config.get('whatsapp_notification', 'twilio_auth_token')
+                TWILIO_WHATSAPP_FROM = config.get('whatsapp_notification', 'twilio_whatsapp_from')
+                WHATSAPP_TO = config.get('whatsapp_notification', 'whatsapp_to')
+                
+                if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, WHATSAPP_TO]):
+                    print("Error: WhatsApp notifications enabled but missing required credentials in config")
+                    sys.exit(1)
+except configparser.NoOptionError as e:
+    print(f"Error: Missing required WhatsApp notification option: {e}")
     sys.exit(1)
 
 # Map string log levels to logging module constants
@@ -152,6 +187,22 @@ def check_files():
     if not os.access(log_dir, os.W_OK):
         logger.error(f"Directory for log file '{log_dir}' is not writable.")
         sys.exit(1)  # Exit with non-zero status code
+
+def send_whatsapp_notification(message):
+    """Send a WhatsApp notification using Twilio API."""
+    if not WHATSAPP_ENABLED:
+        return
+    
+    try:
+        client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        notification = client.messages.create(
+            from_=TWILIO_WHATSAPP_FROM,
+            body=message,
+            to=WHATSAPP_TO
+        )
+        logger.info(f"WhatsApp notification sent successfully. SID: {notification.sid}")
+    except Exception as e:
+        logger.error(f"Failed to send WhatsApp notification: {e}")
 
 def load_tokens():
     """Load OAuth tokens from file or return None if not found."""
@@ -356,6 +407,7 @@ def initialize_upload(youtube, options):
         response = resumable_upload(insert_request, enable_pause=options.enable_pause)  # Perform upload
         if response is None:  # Check if upload failed
             logger.error("Upload failed after retries.")
+            send_whatsapp_notification("❌ YouTube Upload Failed: Upload failed after maximum retries.")
             sys.exit(1)  # Exit with non-zero status code
 
         if options.thumbnail:  # Upload thumbnail if provided
@@ -363,12 +415,18 @@ def initialize_upload(youtube, options):
 
         if options.playlistId:  # Add to playlist if specified
             add_video_to_playlist(youtube, response['id'], options.playlistId)
+        
+        # Send success notification
+        video_url = f"https://www.youtube.com/watch?v={response['id']}"
+        send_whatsapp_notification(f"✅ YouTube Upload Successful!\nVideo ID: {response['id']}\nTitle: {options.title}\nURL: {video_url}")
 
     except HttpError as e:  # Handle critical HTTP errors (e.g., 400 uploadLimitExceeded)
         logger.error(f"Critical HTTP error during upload: status={e.resp.status}, content={e.content}")
+        send_whatsapp_notification(f"❌ YouTube Upload Failed: HTTP error {e.resp.status}")
         sys.exit(1)  # Exit with non-zero status code
     except Exception as e:  # Handle other unexpected errors
         logger.error(f"Unexpected error during upload: {e}")
+        send_whatsapp_notification(f"❌ YouTube Upload Failed: {str(e)}")
         sys.exit(1)  # Exit with non-zero status code
 
 def add_video_to_playlist(youtube, video_id, playlist_id):

@@ -126,6 +126,13 @@ MAX_RETRIES = 3
 [logging]
 log_file = /opt/youtube-upload/youtube_upload.log
 log_level = INFO
+
+[whatsapp_notification]
+enabled = false
+twilio_account_sid = your_twilio_account_sid
+twilio_auth_token = your_twilio_auth_token
+twilio_whatsapp_from = whatsapp:+14155238886
+whatsapp_to = whatsapp:+1234567890
 ```
 -   client_secrets_file: Points to your Google API credentials. Use absolute path.
     
@@ -140,6 +147,20 @@ log_level = INFO
 -   log_file: Path to the log file (default: /var/log/youtube_upload.log if not specified).
     
 -   log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL; default: INFO).
+
+### WhatsApp Notifications
+
+-   enabled: Enable/disable WhatsApp notifications (true/false; default: false).
+    
+-   twilio_account_sid: Your Twilio Account SID (obtain from [Twilio Console](https://console.twilio.com)).
+    
+-   twilio_auth_token: Your Twilio Auth Token (obtain from Twilio Console).
+    
+-   twilio_whatsapp_from: Your Twilio WhatsApp-enabled number (format: whatsapp:+14155238886).
+    
+-   whatsapp_to: Recipient WhatsApp number for notifications (format: whatsapp:+1234567890).
+
+**Note**: To use WhatsApp notifications, you need a Twilio account with WhatsApp messaging enabled. The script will send notifications on upload success and failure.
 
 ## Setup
 ### Python
