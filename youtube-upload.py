@@ -82,6 +82,7 @@ TWILIO_ACCOUNT_SID = None
 TWILIO_AUTH_TOKEN = None
 TWILIO_WHATSAPP_FROM = None
 WHATSAPP_TO = None
+TWILIO_CLIENT = None
 
 try:
     if config.has_section('whatsapp_notification'):
@@ -100,6 +101,12 @@ try:
                 if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, WHATSAPP_TO]):
                     print("Error: WhatsApp notifications enabled but missing required credentials in config")
                     sys.exit(1)
+                if not all(x.strip() for x in [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, WHATSAPP_TO]):
+                    print("Error: WhatsApp notification credentials cannot be empty")
+                    sys.exit(1)
+                
+                # Initialize Twilio client once at startup
+                TWILIO_CLIENT = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 except configparser.NoOptionError as e:
     print(f"Error: Missing required WhatsApp notification option: {e}")
     sys.exit(1)
@@ -190,12 +197,11 @@ def check_files():
 
 def send_whatsapp_notification(message):
     """Send a WhatsApp notification using Twilio API."""
-    if not WHATSAPP_ENABLED:
+    if not WHATSAPP_ENABLED or not TWILIO_CLIENT:
         return
     
     try:
-        client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        notification = client.messages.create(
+        notification = TWILIO_CLIENT.messages.create(
             from_=TWILIO_WHATSAPP_FROM,
             body=message,
             to=WHATSAPP_TO
