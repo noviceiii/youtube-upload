@@ -144,15 +144,15 @@ def send_email(subject, body, to_email_override=None):
         
         # Connect to SMTP server and send email
         logger.info(f"Connecting to SMTP server {SMTP_SERVER}:{SMTP_PORT}...")
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        
-        if USE_TLS:
-            server.starttls()  # Enable TLS encryption
-        
-        server.login(SMTP_USERNAME, SMTP_PASSWORD)
-        text = msg.as_string()
-        server.sendmail(FROM_EMAIL, recipient_email.split(','), text)
-        server.quit()
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            if USE_TLS:
+                server.starttls()  # Enable TLS encryption
+            
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            text = msg.as_string()
+            # Strip whitespace from recipient emails to handle "email1, email2" format
+            recipients = [email.strip() for email in recipient_email.split(',')]
+            server.sendmail(FROM_EMAIL, recipients, text)
         
         logger.info(f"Email notification sent successfully to {recipient_email}")
     except smtplib.SMTPAuthenticationError as e:
@@ -426,7 +426,7 @@ def initialize_upload(youtube, options):
         if response is None:  # Check if upload failed
             logger.error("Upload failed after retries.")
             # Send failure notification email
-            failure_message = f"Video upload failed: {options.title}\n\nVideo file: {options.videofile}\n\nThe upload failed after maximum retries. Please check the logs for more details."
+            failure_message = f"Video upload failed: {options.title}\n\nThe upload failed after maximum retries. Please check the logs for more details."
             send_email("Upload Failed", failure_message, getattr(options, 'email', None))
             sys.exit(1)  # Exit with non-zero status code
 
@@ -444,14 +444,16 @@ def initialize_upload(youtube, options):
 
     except HttpError as e:  # Handle critical HTTP errors (e.g., 400 uploadLimitExceeded)
         logger.error(f"Critical HTTP error during upload: status={e.resp.status}, content={e.content}")
-        # Send failure notification email
-        failure_message = f"Video upload failed with HTTP error: {options.title}\n\nVideo file: {options.videofile}\n\nHTTP Status: {e.resp.status}\nError: {e.content}\n\nPlease check the logs for more details."
+        # Send failure notification email (sanitize error details)
+        error_summary = f"HTTP {e.resp.status}" if hasattr(e, 'resp') else "HTTP Error"
+        failure_message = f"Video upload failed with HTTP error: {options.title}\n\nError: {error_summary}\n\nPlease check the logs for more details."
         send_email("Upload Failed - HTTP Error", failure_message, getattr(options, 'email', None))
         sys.exit(1)  # Exit with non-zero status code
     except Exception as e:  # Handle other unexpected errors
         logger.error(f"Unexpected error during upload: {e}")
-        # Send failure notification email
-        failure_message = f"Video upload failed with unexpected error: {options.title}\n\nVideo file: {options.videofile}\n\nError: {str(e)}\n\nPlease check the logs for more details."
+        # Send failure notification email (sanitize error details)
+        error_type = type(e).__name__
+        failure_message = f"Video upload failed with unexpected error: {options.title}\n\nError Type: {error_type}\n\nPlease check the logs for more details."
         send_email("Upload Failed - Unexpected Error", failure_message, getattr(options, 'email', None))
         sys.exit(1)  # Exit with non-zero status code
 
