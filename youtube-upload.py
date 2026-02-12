@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 # This script uploads a video to YouTube using the YouTube Data API v3.
 # It uses OAuth 2.0 for authentication, adapted for headless systems.

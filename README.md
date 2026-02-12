@@ -134,7 +134,7 @@ Requires Python 3.9 or higher.
 
 ### Libraries
 ```bash
-pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+pip install -r requirements.txt
 ```
 
 ### Google API
