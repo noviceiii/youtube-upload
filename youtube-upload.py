@@ -19,6 +19,9 @@ import time
 import logging
 import threading
 import queue
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta, timezone
 
 from googleapiclient.discovery import build  # Build API client
@@ -69,6 +72,29 @@ except configparser.NoSectionError as e:
     print(f"Error: Missing [logging] section in config file: {e}")
     sys.exit(1)
 
+# Mail settings
+try:
+    MAIL_ENABLED = config.getboolean('mail', 'enabled', fallback=False)  # Enable/disable email notifications
+    SMTP_SERVER = config.get('mail', 'smtp_server', fallback='smtp.gmail.com')  # SMTP server address
+    SMTP_PORT = config.getint('mail', 'smtp_port', fallback=587)  # SMTP server port
+    USE_TLS = config.getboolean('mail', 'use_tls', fallback=True)  # Enable TLS encryption
+    SMTP_USERNAME = config.get('mail', 'smtp_username', fallback='')  # SMTP username
+    SMTP_PASSWORD = config.get('mail', 'smtp_password', fallback='')  # SMTP password
+    FROM_EMAIL = config.get('mail', 'from_email', fallback='')  # Sender email address
+    TO_EMAIL = config.get('mail', 'to_email', fallback='')  # Recipient email address
+    SUBJECT_PREFIX = config.get('mail', 'subject_prefix', fallback='[YouTube Upload]')  # Email subject prefix
+except configparser.NoSectionError:
+    # Mail section is optional, use defaults
+    MAIL_ENABLED = False
+    SMTP_SERVER = 'smtp.gmail.com'
+    SMTP_PORT = 587
+    USE_TLS = True
+    SMTP_USERNAME = ''
+    SMTP_PASSWORD = ''
+    FROM_EMAIL = ''
+    TO_EMAIL = ''
+    SUBJECT_PREFIX = '[YouTube Upload]'
+
 # Map string log levels to logging module constants
 LOG_LEVELS = {
     'DEBUG': logging.DEBUG,
@@ -92,6 +118,49 @@ except (OSError, PermissionError) as e:
     print(f"Error: Cannot configure logging to '{LOG_FILE}': {e}")
     sys.exit(1)  # Exit with non-zero status code
 logger = logging.getLogger(__name__)  # Initialize logger
+
+def send_email(subject, body, to_email_override=None):
+    """Send an email notification using SMTP."""
+    if not MAIL_ENABLED:
+        logger.debug("Email notifications are disabled in configuration.")
+        return
+    
+    # Use override email if provided, otherwise use config email
+    recipient_email = to_email_override if to_email_override else TO_EMAIL
+    
+    if not recipient_email or not FROM_EMAIL or not SMTP_USERNAME or not SMTP_PASSWORD:
+        logger.warning("Email notification skipped: Missing required email configuration (from_email, to_email, smtp_username, or smtp_password).")
+        return
+    
+    try:
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = FROM_EMAIL
+        msg['To'] = recipient_email
+        msg['Subject'] = f"{SUBJECT_PREFIX} {subject}"
+        
+        # Attach body
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Connect to SMTP server and send email
+        logger.info(f"Connecting to SMTP server {SMTP_SERVER}:{SMTP_PORT}...")
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            if USE_TLS:
+                server.starttls()  # Enable TLS encryption
+            
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            text = msg.as_string()
+            # Strip whitespace from recipient emails to handle "email1, email2" format
+            recipients = [email.strip() for email in recipient_email.split(',')]
+            server.sendmail(FROM_EMAIL, recipients, text)
+        
+        logger.info(f"Email notification sent successfully to {recipient_email}")
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"SMTP authentication failed: {e}")
+    except smtplib.SMTPException as e:
+        logger.error(f"SMTP error occurred while sending email: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error sending email: {e}")
 
 # HTTP settings
 httplib2.RETRIES = 1  # Set HTTP retries to 1
@@ -356,7 +425,16 @@ def initialize_upload(youtube, options):
         response = resumable_upload(insert_request, enable_pause=options.enable_pause)  # Perform upload
         if response is None:  # Check if upload failed
             logger.error("Upload failed after retries.")
+            # Send failure notification email
+            failure_message = f"Video upload failed: {options.title}\n\nThe upload failed after maximum retries. Please check the logs for more details."
+            send_email("Upload Failed", failure_message, getattr(options, 'email', None))
             sys.exit(1)  # Exit with non-zero status code
+
+        # Send success notification email
+        video_id = response.get('id', 'Unknown')
+        video_url = f"https://www.youtube.com/watch?v={video_id}" if video_id != 'Unknown' else "N/A"
+        success_message = f"Video uploaded successfully!\n\nTitle: {options.title}\nVideo ID: {video_id}\nVideo URL: {video_url}\nDescription: {options.description}\nPrivacy Status: {options.privacyStatus}"
+        send_email("Upload Successful", success_message, getattr(options, 'email', None))
 
         if options.thumbnail:  # Upload thumbnail if provided
             upload_thumbnail(youtube, response['id'], options.thumbnail)
@@ -366,9 +444,17 @@ def initialize_upload(youtube, options):
 
     except HttpError as e:  # Handle critical HTTP errors (e.g., 400 uploadLimitExceeded)
         logger.error(f"Critical HTTP error during upload: status={e.resp.status}, content={e.content}")
+        # Send failure notification email (sanitize error details)
+        error_summary = f"HTTP {e.resp.status}" if hasattr(e, 'resp') else "HTTP Error"
+        failure_message = f"Video upload failed with HTTP error: {options.title}\n\nError: {error_summary}\n\nPlease check the logs for more details."
+        send_email("Upload Failed - HTTP Error", failure_message, getattr(options, 'email', None))
         sys.exit(1)  # Exit with non-zero status code
     except Exception as e:  # Handle other unexpected errors
         logger.error(f"Unexpected error during upload: {e}")
+        # Send failure notification email (sanitize error details)
+        error_type = type(e).__name__
+        failure_message = f"Video upload failed with unexpected error: {options.title}\n\nError Type: {error_type}\n\nPlease check the logs for more details."
+        send_email("Upload Failed - Unexpected Error", failure_message, getattr(options, 'email', None))
         sys.exit(1)  # Exit with non-zero status code
 
 def add_video_to_playlist(youtube, video_id, playlist_id):
@@ -534,6 +620,7 @@ if __name__ == '__main__':
     parser.add_argument("--geo", help="Geographic targeting (comma-separated ISO 3166-1 alpha-2 country codes)")
     parser.add_argument("--defaultAudioLanguage", help="Default audio language for the video")
     parser.add_argument("--enable-pause", action="store_true", help="Enable interactive pause/resume during upload", default=False)
+    parser.add_argument("--email", help="Override recipient email address for notifications (optional)")
     
     auth_group = parser.add_argument_group('Authentication or debugging related options')
     auth_group.add_argument("--no-upload", action="store_true", help="Only authenticate, do not upload the video")

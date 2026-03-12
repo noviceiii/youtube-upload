@@ -13,6 +13,7 @@ A Python script for tech enthusiasts looking to automate video uploads to YouTub
 - **OAuth 2.0**: Configured for offline access and incremental authorization, keeping your app's permissions lean and secure.
 - **Improved Retry Logic**: Enhanced exponential backoff with a minimum 30-second delay to respect YouTube API rate limits.
 - **Configurable Logging**: Supports customizable log file paths and logging levels for better debugging.
+- **Email Notifications**: Optional SMTP email notifications for upload success and failure events.
 
 ## How It Works
 
@@ -103,6 +104,8 @@ python3 youtube-upload.py \
 
 -   --enable-pause: Enable interactive pause/resume control during upload. Press 'p' to pause/resume (optional).
 
+-   --email: Override recipient email address for notifications. If not provided, uses the address from config.cfg (optional).
+
 **Parameters for authentication or debugging**
 
 -   --no-upload: Authenticate only; don't upload the video.
@@ -126,6 +129,17 @@ MAX_RETRIES = 3
 [logging]
 log_file = /opt/youtube-upload/youtube_upload.log
 log_level = INFO
+
+[mail]
+enabled = false
+smtp_server = smtp.gmail.com
+smtp_port = 587
+use_tls = true
+smtp_username = your_email@gmail.com
+smtp_password = your_password
+from_email = your_email@gmail.com
+to_email = recipient@example.com
+subject_prefix = [YouTube Upload]
 ```
 -   client_secrets_file: Points to your Google API credentials. Use absolute path.
     
@@ -140,6 +154,24 @@ log_level = INFO
 -   log_file: Path to the log file (default: /var/log/youtube_upload.log if not specified).
     
 -   log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL; default: INFO).
+
+-   enabled: Enable or disable email notifications (true/false; default: false).
+
+-   smtp_server: SMTP server address (e.g., smtp.gmail.com for Gmail).
+
+-   smtp_port: SMTP server port (587 for TLS, 465 for SSL; default: 587).
+
+-   use_tls: Enable TLS encryption (true/false; default: true).
+
+-   smtp_username: SMTP username, usually your email address.
+
+-   smtp_password: SMTP password or app-specific password (for Gmail, use app-specific password).
+
+-   from_email: Sender email address (can be same as smtp_username).
+
+-   to_email: Recipient email address (comma-separated for multiple recipients).
+
+-   subject_prefix: Email subject prefix (default: [YouTube Upload]).
 
 ## Setup
 ### Python
@@ -165,6 +197,35 @@ pip install -r requirements.txt
 -   Rename config.example.cfg to config.cfg and update paths and settings.
     
 -   Ensure the user running the script has read/write permissions for client_secrets_file, oauth2_storage_file, and log_file.
+
+### Email Notifications (Optional)
+
+To enable email notifications for upload success/failure:
+
+1. Edit the `[mail]` section in `config.cfg`:
+   - Set `enabled = true`
+   - Configure your SMTP server settings (e.g., Gmail: smtp.gmail.com, port 587)
+   - Provide your email credentials (for Gmail, use an [app-specific password](https://support.google.com/accounts/answer/185833))
+   - Set recipient email address(es)
+
+2. Example Gmail configuration:
+   ```ini
+   [mail]
+   enabled = true
+   smtp_server = smtp.gmail.com
+   smtp_port = 587
+   use_tls = true
+   smtp_username = your_email@gmail.com
+   smtp_password = your_app_specific_password
+   from_email = your_email@gmail.com
+   to_email = recipient@example.com
+   subject_prefix = [YouTube Upload]
+   ```
+
+3. You can override the recipient email using the `--email` command-line argument:
+   ```bash
+   python3 youtube-upload.py --videofile=video.mp4 --title="My Video" --email=override@example.com
+   ```
 
 ## Recent Changes (v1.3.3)
 
