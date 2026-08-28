@@ -6,7 +6,7 @@
 # Automatically refreshes tokens to prevent manual re-authentication.
 # Exits with non-zero status code on critical upload errors (e.g., 400 uploadLimitExceeded).
 # Validates configuration file paths and exits with meaningful errors if invalid.
-# @version 1.3.3, 2025-09-26
+# @version 1.4.0, 2026-08-28
 
 import configparser
 import http.client
@@ -250,7 +250,8 @@ def save_tokens(credentials):
     try:
         with open(OAUTH2_STORAGE_FILE, "w") as f:  # Write tokens to file
             json.dump(tokens, f)
-            logger.info(f"Credentials saved to {OAUTH2_STORAGE_FILE}, expiry={credentials.expiry}")
+        os.chmod(OAUTH2_STORAGE_FILE, 0o600)  # Restrict token file to owner read/write
+        logger.info(f"Credentials saved to {OAUTH2_STORAGE_FILE}, expiry={credentials.expiry}")
     except OSError as e:
         logger.error(f"Failed to save OAuth tokens to '{OAUTH2_STORAGE_FILE}': {e}")
         sys.exit(1)  # Exit with non-zero status code
@@ -298,7 +299,7 @@ def get_authenticated_service(args):
                 token_uri=tokens["token_uri"],
                 scopes=tokens["scopes"]
             )
-            logger.info(f"Loaded credentials: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10] if creds.refresh_token else 'None'}...")
+            logger.info(f"Loaded credentials: expiry={creds.expiry}, has_refresh_token={bool(creds.refresh_token)}")
 
             # Check token expiry and refresh proactively
             current_time = datetime.now(timezone.utc)  # Get current UTC time
@@ -351,12 +352,12 @@ def get_authenticated_service(args):
         logger.info(f"Please visit this URL to authorize the application: {authorization_url}")
         print(f"Please visit this URL to authorize the application:\n{authorization_url}")
         code = input("Enter the authorization code: ").strip()  # Get auth code from user
-        logger.info(f"Authorization code entered: {code}")
+        logger.info("Authorization code received; exchanging for tokens.")
 
         try:
             flow.fetch_token(code=code)  # Exchange code for tokens
             creds = flow.credentials
-            logger.info(f"Credentials obtained: token={creds.token[:10]}..., expiry={creds.expiry}, refresh_token={creds.refresh_token[:10] if creds.refresh_token else 'None'}...")
+            logger.info(f"Credentials obtained: expiry={creds.expiry}, has_refresh_token={bool(creds.refresh_token)}")
             if not creds.expiry:  # Set default expiry if none provided
                 logger.warning("No expiry set after initial authentication, setting manually.")
                 creds.expiry = datetime.now(timezone.utc) + timedelta(seconds=3600)
