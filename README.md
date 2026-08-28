@@ -1,6 +1,6 @@
 # YouTube Upload Script
 
-Version 1.3.3
+Version 1.4.0
 
 ## Overview
 
@@ -18,7 +18,7 @@ A Python script for tech enthusiasts looking to automate video uploads to YouTub
 ## How It Works
 
 1. **Authentication**: Uses **OAuth 2.0** for secure access. The script provides a URL for manual entry on headless systems, with automatic token refresh to minimize re-authentication.
-    - **Token Management**: Automatically refreshes tokens when they expire, are invalid, or based on a configurable refresh interval. Tokens are stored in `youtube_oauth2_store.json`.
+    - **Token Management**: Automatically refreshes tokens when they expire, are invalid, or based on a configurable refresh interval. Tokens are stored in `youtube_oauth2_store.json` (file mode `600` after each save).
 
 2. **Upload Process**: 
     - Parses command-line arguments to define video metadata.
@@ -176,7 +176,7 @@ subject_prefix = [YouTube Upload]
 ## Setup
 ### Python
 
-Requires Python 3.9 or higher.
+Requires Python 3.10 or higher (pinned Google client libraries dropped 3.9).
 
 ### Libraries
 ```bash
@@ -189,7 +189,7 @@ pip install -r requirements.txt
     
 -   Create credentials for a Desktop app, download client_secrets.json, and place it at client_secrets_file location.
 
--  See detailed instruction in google-console-setup-instructions.md
+-   See detailed instructions in [google-console-setup-instructions.md](google-console-setup-instructions.md).
     
 
 ### Configuration
@@ -197,6 +197,12 @@ pip install -r requirements.txt
 -   Rename config.example.cfg to config.cfg and update paths and settings.
     
 -   Ensure the user running the script has read/write permissions for client_secrets_file, oauth2_storage_file, and log_file.
+
+-   Restrict secrets on disk: `chmod 600 config.cfg` (SMTP password and credential paths) and `chmod 600` on the OAuth token file (`oauth2_storage_file`). After each token write the script sets the token file mode to `0o600`.
+
+### OAuth out-of-band (OOB) flow
+
+Headless authentication still uses Google's paste-the-code OOB redirect (`urn:ietf:wg:oauth:2.0:oob`): the script prints an authorization URL, you sign in, then paste the code back. Google has **deprecated** this OOB flow; treating the pasted code as a secret is a known risk, and Google may reject OOB for some client types. This release does **not** change that flow.
 
 ### Email Notifications (Optional)
 
@@ -226,6 +232,15 @@ To enable email notifications for upload success/failure:
    ```bash
    python3 youtube-upload.py --videofile=video.mp4 --title="My Video" --email=override@example.com
    ```
+
+## Recent Changes (v1.4.0)
+
+### Security and hygiene
+- Token file (`oauth2_storage_file`) is set to mode `600` after each write.
+- Logs no longer include the raw authorization code or access/refresh token prefixes; only non-secret status (path, expiry, whether a refresh token is present).
+- Google client libraries are pinned in `requirements.txt` (`google-api-python-client>=2.199.0,<3` and matching pins). Python 3.10+ is required.
+- `config.cfg` and the token file should be `chmod 600`.
+- OOB paste-the-code authentication is documented as a Google-deprecated known risk; the OOB flow itself is unchanged.
 
 ## Recent Changes (v1.3.3)
 
