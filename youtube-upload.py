@@ -6,7 +6,7 @@
 # Automatically refreshes tokens to prevent manual re-authentication.
 # Exits with non-zero status code on critical upload errors (e.g., 400 uploadLimitExceeded).
 # Validates configuration file paths and exits with meaningful errors if invalid.
-# @version 1.4.0, 2026-08-28
+# @version 1.4.1, 2026-09-06
 
 import configparser
 import http.client
@@ -49,7 +49,6 @@ try:
     CLIENT_SECRETS_FILE = os.path.abspath(config.get('authentication', 'client_secrets_file'))  # Path to client_secrets.json
     OAUTH2_STORAGE_FILE = os.path.abspath(config.get('authentication', 'oauth2_storage_file', fallback='/opt/Python Scripts/youtube-upload/youtube_oauth2_store.json'))  # Path to token storage
     FORCE_TOKEN_REFRESH_DAYS = config.getint('authentication', 'force_token_refresh_days', fallback=7)  # Days before forcing token refresh
-    REFRESH_TIMEOUT = config.getint('authentication', 'refresh_timeout', fallback=30)  # Timeout for token refresh attempts
 except configparser.NoSectionError as e:
     print(f"Error: Missing [authentication] section in config file: {e}")
     sys.exit(1)
@@ -66,7 +65,7 @@ except configparser.NoSectionError as e:
 
 # Logging settings
 try:
-    LOG_FILE = config.get('logging', 'log_file', fallback='/opt/Python Scripts/youtube-upload/youtube_upload.log')  # Path to log file
+    LOG_FILE = config.get('logging', 'log_file', fallback='/opt/youtube-upload/youtube_upload.log')  # Path to log file
     LOG_LEVEL = config.get('logging', 'log_level', fallback='INFO').upper()  # Log level (e.g., INFO, DEBUG)
 except configparser.NoSectionError as e:
     print(f"Error: Missing [logging] section in config file: {e}")

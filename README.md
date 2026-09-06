@@ -1,6 +1,6 @@
 # YouTube Upload Script
 
-Version 1.4.0
+Version 1.4.1
 
 ## Overview
 
@@ -57,7 +57,7 @@ python3 youtube-upload.py \
   --playlistId=PLxYz12345 \
   --thumbnail=./thumbnail.jpg \
   --license=youtube \
-  --publishAt="2025-03-01T08:00:00Z" \
+  --publishAt="2026-12-01T08:00:00Z" \
   --publicStatsViewable \
   --madeForKids \
   --ageGroup=age25_34 \
@@ -76,13 +76,13 @@ python3 youtube-upload.py \
     
 -   --description: Video description (default: "Test Description").
     
--   --category: Numeric YouTube category ID.
+-   --category: Numeric YouTube category ID (default: 22 — People & Blogs).
     
 -   --keywords: Comma-separated list of tags (default: "").
     
 -   --privacyStatus: Privacy setting (public, private, unlisted; default: public).
     
--   --latitude, --longitude: Set video location (optional).
+-   --latitude, --longitude: Set video location (optional). Note: the current YouTube Data API may ignore recording location on upload.
     
 -   --language: Default language of the video (default: "en").
     
@@ -98,7 +98,7 @@ python3 youtube-upload.py \
     
 -   --madeForKids: Indicates if the video is made for kids (optional).
     
--   --ageGroup, --gender, --geo: Targeting options for the video (optional).
+-   --ageGroup, --gender, --geo: Targeting options for the video (optional). Note: these fields may be ignored by the current YouTube Data API.
    
 -   --defaultAudioLanguage: Default audio language (optional).
 
@@ -121,7 +121,6 @@ Please rename *config.example.cfg* to *config.cfg* and adjust the parameters acc
 client_secrets_file = /opt/youtube-upload/youtube_client_secrets.json
 oauth2_storage_file = /opt/youtube-upload/youtube_oauth2_store.json
 force_token_refresh_days = 7
-refresh_timeout = 30
 
 [upload_settings]
 MAX_RETRIES = 3
@@ -147,11 +146,9 @@ subject_prefix = [YouTube Upload]
     
 -   force_token_refresh_days: Days before forcing token refresh (default: 7).
     
--   refresh_timeout: Timeout in seconds for token refresh requests (default: 30).
-    
 -   MAX_RETRIES: Number of retry attempts for upload and token refresh (default: 3). Retries use exponential backoff with a minimum 30-second delay.
     
--   log_file: Path to the log file (default: /var/log/youtube_upload.log if not specified).
+-   log_file: Path to the log file (default: /opt/youtube-upload/youtube_upload.log if not specified).
     
 -   log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL; default: INFO).
 
@@ -232,6 +229,16 @@ To enable email notifications for upload success/failure:
    ```bash
    python3 youtube-upload.py --videofile=video.mp4 --title="My Video" --email=override@example.com
    ```
+
+## Recent Changes (v1.4.1)
+
+### Docs and dependency hygiene
+- Align log file default path in code and README to `/opt/youtube-upload/youtube_upload.log`.
+- Document category default `22` (People & Blogs); refresh `publishAt` example year.
+- Note that latitude/longitude and age/gender/geo targeting may be ignored by the current YouTube Data API.
+- Remove unused `refresh_timeout` / `REFRESH_TIMEOUT` from config example, README, and script load.
+- Pin `google-api-python-client>=2.200.0,<3`; replace unused direct `google-auth-httplib2` with direct `httplib2` (script imports `httplib2`).
+- Close issue #8: SMTP success/fail notifications already landed; error-only notify flag deferred.
 
 ## Recent Changes (v1.4.0)
 
